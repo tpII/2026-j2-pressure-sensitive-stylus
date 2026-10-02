@@ -9,7 +9,7 @@
   * Cable USB
 * Verificación física de los componentes recibidos.
 
-![Materiales recibidos](./docs/img/materiales_recibidos.jpeg)
+<img src="./docs/img/materiales_recibidos.jpeg" width="200">
 
 ## 01-10-2026
 
