@@ -32,9 +32,6 @@
 * Fue necesario ajustar los pines de comunicación I2C ya que la asignación de pines difería entre las placas.
 * Se detectó que el bus I2C fallaba de forma intermitente en la protoboard a alta velocidad. Se redujo la frecuencia de comunicación y la conexión se estabilizó.
 * Se verificó mediante un programa de escaneo I2C que el MPU6050 es detectado correctamente en la dirección esperada.
-* Se desarrolló un script de validación de ángulos con una secuencia guiada de posiciones conocidas (0°, ±45°, ±90°) en cada eje.
-* Primera validación: los ejes estaban bien asignados, pero el filtro sobreestimaba entre 3° y 6°. Se identificó como causa un offset en el acelerómetro.
-* Se incorporó la corrección de offset del acelerómetro en el firmware. Segunda validación: el error bajó a menos de 2° en el rango ±90°. El pitch en ±90° presenta singularidad (gimbal lock), lo cual es inherente a la representación de Euler.
 
 
 ## 05-10-2026
@@ -67,8 +64,13 @@
 **Actividades realizadas**
 * Se agregó calibración de bias del giróscopo al inicio: se toman varias muestras con el sensor en reposo, se promedian y se restan en cada lectura antes de alimentar el filtro. Esto reduce la deriva significativamente.
 * Con estos cambios el lápiz dejó de rotar solo durante los primeros minutos de uso. La deriva en yaw persiste a largo plazo, lo cual es esperable al no contar con magnetómetro.
+* Se desarrolló un script de validación de ángulos con una secuencia guiada de posiciones conocidas (0°, ±45°, ±90°) en cada eje.
+* Primera validación: los ejes estaban bien asignados, pero el filtro sobreestimaba entre 3° y 6°. Se identificó como causa un offset en el acelerómetro.
+* Se incorporó la corrección de offset del acelerómetro en el firmware. Segunda validación: el error bajó a menos de 2° en el rango ±90°. El pitch en ±90° presenta singularidad (gimbal lock), lo cual es inherente a la representación de Euler.
 * Se subió al repositorio el firmware y el visualizador.
 
 **Pendientes**
 
 * Iniciar el desarrollo de la lógica para la estimación del desplazamiento lineal.
+* Evaluar la adopción de β = 0,1 (mejor resultado del ensayo de calibración del 01-10) frente al β sugerido en el paper de Madgwick, que es el que usa el firmware actual.
+
