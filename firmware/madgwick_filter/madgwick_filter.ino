@@ -1,3 +1,9 @@
+// =============================================================================
+// COPIA CORREGIDA de firmware/madgwick_filter/madgwick_filter.ino (11/10/2026)
+// Cambios: (1) calibracion del acelerometro en cualquier orientacion
+//          (2) atenuacion de velocidad VEL_DECAY 0.98 -> 0.995
+// Buscar "CORRECCION" para ver cada cambio. El resto queda igual al original.
+// =============================================================================
 #include <Wire.h>
 #include <math.h>
 
@@ -34,7 +40,13 @@
 #define ZUPT_ALPHA    0.1f
 // Mitigaciones de la doble integracion (ver informe: deriva ~ t^2):
 #define ACC_DEADBAND  0.02f    // [g] aceleracion lineal por debajo de esto se toma como 0 (ruido/residuo de gravedad)
-#define VEL_DECAY     0.98f    // por muestra: la velocidad se atenua (constante ~0,5 s) para que el error no crezca sin limite
+// CORRECCION (11/10): con 0.98 la velocidad caia a la mitad en ~0,35 s y un trazo de
+// 20 cm se dibujaba como unos pocos cm. El ZUPT ya pone la velocidad en cero en reposo,
+// asi que la atenuacion solo tiene que acotar la deriva DURANTE el movimiento.
+// 0.995 -> constante de tiempo ~2 s (mitad en ~1,4 s): un trazo de 1-2 s conserva
+// la mayor parte de su longitud. Subir a 0.998 si los trazos siguen saliendo cortos;
+// bajar a 0.99 si el punto deriva demasiado entre reposos.
+#define VEL_DECAY     0.995f
 #define ZUPT_SAMPLES  10
 
 static float q0 = 1.0f, q1 = 0.0f, q2 = 0.0f, q3 = 0.0f;
@@ -235,7 +247,13 @@ void initOrientacion() {
 }
 
 void calibrateSensors() {
-    Serial.println("Calibrando - apoyar el sensor PLANO y quieto...");
+    // CORRECCION (11/10): antes se suponia el sensor PLANO (gravedad = +1 g en Z) y
+    // todo lo que no fuera (0,0,1) se tomaba como bias. En la protoboard el sensor
+    // esta de costado (gravedad sobre X): se "restaba" 1 g de X y se sumaba 1 g a Z,
+    // el filtro creia que estaba plano y al girarlo la gravedad mal restada se
+    // integraba como desplazamiento. Ahora la gravedad se toma en la direccion
+    // medida, sea cual sea la posicion del sensor durante la calibracion.
+    Serial.println("Calibrando - dejar el sensor QUIETO (en cualquier posicion)...");
     double sumGx = 0, sumGy = 0, sumGz = 0;
     double sumAx = 0, sumAy = 0, sumAz = 0;
     int count = 0;
@@ -254,9 +272,23 @@ void calibrateSensors() {
     gyroBiasY = (float)(sumGy / CALIB_SAMPLES);
     gyroBiasZ = (float)(sumGz / CALIB_SAMPLES);
 
-    accBiasX = (float)(sumAx / CALIB_SAMPLES);
-    accBiasY = (float)(sumAy / CALIB_SAMPLES);
-    accBiasZ = (float)(sumAz / CALIB_SAMPLES) - 1.0f;
+    // Promedio del acelerometro en reposo = gravedad (1 g, direccion desconocida) + bias.
+    // Se toma como gravedad el vector unitario en la direccion medida y el resto como
+    // bias. Asi se corrige el error de escala en la direccion de la gravedad y el
+    // filtro arranca con la orientacion real (de costado, inclinado o plano).
+    float mAx = (float)(sumAx / CALIB_SAMPLES);
+    float mAy = (float)(sumAy / CALIB_SAMPLES);
+    float mAz = (float)(sumAz / CALIB_SAMPLES);
+    float mNorm = sqrtf(mAx*mAx + mAy*mAy + mAz*mAz);
+    if (mNorm < 0.5f || mNorm > 1.5f) {
+        // Lectura incoherente (se movio o fallo el sensor): no se aplica bias de acelerometro
+        Serial.println("Aviso: |a| fuera de rango durante la calibracion, bias de acelerometro = 0");
+        accBiasX = accBiasY = accBiasZ = 0.0f;
+    } else {
+        accBiasX = mAx - mAx / mNorm;
+        accBiasY = mAy - mAy / mNorm;
+        accBiasZ = mAz - mAz / mNorm;
+    }
 
     Serial.print("Bias giro (rad/s): ");
     Serial.print(gyroBiasX, 5); Serial.print(", ");

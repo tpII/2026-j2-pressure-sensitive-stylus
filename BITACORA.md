@@ -94,3 +94,19 @@
 * Evaluar la adopción de β = 0,1 (ensayo del 01-10) frente al β adaptativo actual.
 * Medir el offset del eje X del acelerómetro o realizar una calibración en seis posiciones.
 * Definir la orientación del sensor dentro del cuerpo del lápiz.
+
+## 11-10-2026
+
+**Actividades realizadas**
+
+* Se desarrolló un visor de orientación en Processing 4 (`visor_lapiz`) que funciona con el firmware de ensayo `t4_madgwick` sin modificarlo: al conectarse espera el fin de la calibración y envía el comando `l` para recibir el cuaternión en formato CSV. Si solo llega la salida para Teleplot, reconstruye el cuaternión desde roll, pitch y yaw.
+* El visor tiene dos paneles: un modelo 3D del módulo GY-521 con sus ejes, rotado según la orientación relativa a una pose de referencia (tecla R), y un lienzo donde se dibuja inclinando el sensor.
+* En la primera versión el dibujo no respondía de forma intuitiva: el cursor seguía el ángulo de giro alrededor de cada eje, pero girar alrededor de un eje inclina el sensor en la dirección perpendicular, y el giro sobre el propio eje vertical también movía el cursor. Se reescribió como joystick: al tomar la referencia se detecta qué eje del sensor queda vertical y el cursor sigue la inclinación de ese eje. Así el giro sobre la vertical (y la deriva del yaw) no afecta el trazo.
+* Se grabó el video demostrativo con el visor: respuesta del modelo 3D a rotaciones en cada eje, estabilidad al soltar el sensor y dejarlo en reposo, y un trazo de prueba por inclinación. El desplazamiento no se incluyó por no estar validado.
+
+
+**Pendientes**
+
+* Cuantificar el error de desplazamiento con trazos de longitud conocida.
+* Evaluar la adopción de β = 0,1 (ensayo del 01-10) frente al β adaptativo actual.
+* Ensamblaje mecánico del lápiz, pendiente de la entrega del sensor KY-024.
