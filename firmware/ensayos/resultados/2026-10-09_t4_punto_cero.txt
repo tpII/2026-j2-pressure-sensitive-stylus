@@ -1,0 +1,12 @@
+PUNTO 0 - repeticion con el protoboard apoyado plano (2026-10-09, ~20:45)
+Firmware: t4_madgwick con correccion de offset del acelerometro (ay = -0.0198 g, az = -0.0855 g), beta = 0.1.
+Registro: 5 s quieto, 501 muestras. Referencia del inclinometro: 0.0 deg.
+
+Salida del script (validacion_angulos.py, solo punto 0 del eje X):
+  Alinear:  0.0 s   | roll   -0.73   pitch    1.84
+  REGISTRANDO, no mover:  0.0 s   | roll   -0.80   pitch    1.67
+  Angulo que marca el inclinometro [Enter = 0]: 0
+  roll: media   -1.04  desvio  0.11  ref   +0.00  error  -1.04  (501 muestras) | pitch medio   +1.68
+
+Resultado: roll = -1.04 deg (desvio 0.11), pitch = +1.68 deg con el protoboard plano.
+Reemplaza a las lecturas de 0 de la corrida 203421 (6.2 y 5.7 deg), que se atribuyen a un mal apoyo.

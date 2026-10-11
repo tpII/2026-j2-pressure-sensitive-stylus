@@ -1,0 +1,10 @@
+TEST 1 - Escaner I2C + WHO_AM_I
+Fecha: 2026-10-01 | Placa: ESP32 DevKit (ESP-WROOM-32) | Sensor: GY-521 (MPU6050)
+Conexion: VCC->3V3, GND->GND, SDA->GPIO21, SCL->GPIO22, AD0->GND. I2C a 100 kHz para el escaneo.
+
+Salida del monitor serie:
+  -> dispositivo en 0x68  (MPU6050? WHO_AM_I = 0x68 OK original)
+Total: 1
+
+Resultado: un unico dispositivo en el bus, en la direccion esperada (0x68, AD0 a GND).
+WHO_AM_I = 0x68 confirma un MPU6050 original (no clon). Cableado y soldadura verificados.

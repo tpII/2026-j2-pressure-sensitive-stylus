@@ -74,3 +74,23 @@
 * Iniciar el desarrollo de la lógica para la estimación del desplazamiento lineal.
 * Evaluar la adopción de β = 0,1 (mejor resultado del ensayo de calibración del 01-10) frente al β sugerido en el paper de Madgwick, que es el que usa el firmware actual.
 
+## 10-10-2026
+
+**Actividades realizadas**
+
+* Primer prototipo de estimación de desplazamiento: la aceleración se rota al marco del mundo con el cuaternión de Madgwick, se resta la gravedad (1 g en Z) y se integra dos veces (aceleración → velocidad → posición) a 100 Hz.
+* Se implementó ZUPT (actualización de velocidad cero): cuando el sensor está en reposo, la velocidad se pone en cero para frenar la deriva de la integración.
+* Configuración del MPU6050: filtro pasabajos digital (DLPF) en 44 Hz, giróscopo ±500 °/s y acelerómetro ±4 g, para reducir ruido y evitar saturación en movimientos rápidos.
+* Temporización con período fijo de 10 ms sin acumulación de atraso, y puerto serie a 921600 baudios.
+* La orientación inicial se calcula a partir del acelerómetro y se usa un β adaptativo: 0,033 en movimiento (valor sugerido por Madgwick) y 0,5 en reposo para corregir rápido la inclinación.
+* El reposo se detecta con el módulo del acelerómetro (|a| ≈ 1 g) y el giro, promediados en ~0,1 s, de forma independiente de la orientación estimada. Antes, un error de orientación impedía detectar el reposo y la posición se desplazaba en línea recta.
+* Mitigación de la deriva por doble integración: zona muerta de 0,02 g en la aceleración lineal y atenuación de la velocidad (factor 0,98 por muestra).
+* Visualizador en Processing: se corrigió un cuelgue por acceso concurrente a la trayectoria desde el hilo serie, se agregó escala ajustable (+/-) y reinicio de orientación (tecla Z).
+* Resultado: el lápiz digital sigue trazos cortos en el plano XY y se mantiene quieto en reposo. El eje Z presenta mayor deriva, al concentrar el residuo de la gravedad.
+
+**Pendientes**
+
+* Cuantificar el error de desplazamiento con trazos de longitud conocida.
+* Evaluar la adopción de β = 0,1 (ensayo del 01-10) frente al β adaptativo actual.
+* Medir el offset del eje X del acelerómetro o realizar una calibración en seis posiciones.
+* Definir la orientación del sensor dentro del cuerpo del lápiz.

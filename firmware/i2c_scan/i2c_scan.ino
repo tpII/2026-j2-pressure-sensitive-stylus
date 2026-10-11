@@ -2,7 +2,7 @@
 
 void setup() {
     Serial.begin(115200);
-    Wire.begin(41, 42);
+    Wire.begin(21, 22)
     Wire.setClock(100000);
     delay(500);
     Serial.println("Escaneando I2C...");

@@ -1,0 +1,30 @@
+TEST 3 - Calibracion estatica, ruido y deriva del giroscopo
+Fecha: 2026-10-01 | Placa: ESP32 DevKit (ESP-WROOM-32) | Sensor: GY-521 MPU6050 (WHO_AM_I 0x68, original)
+Config: accel +-4 g, giro +-500 dps, DLPF 44 Hz, muestreo 100 Hz, I2C 400 kHz
+Salida textual del monitor serie:
+
+--- Fase 1: offsets y ruido (sensor quieto) ---
+eje        media       desvio(ruido)
+ax [g]      +1.0280      0.0017
+ay [g]      -0.0198      0.0024
+az [g]      -0.0855      0.0026
+gx [dps]    -0.4318      0.0459
+gy [dps]    -0.1643      0.0951
+gz [dps]    +0.5116      0.0488
+|g| medido = 1.0317 g (ideal 1.000)
+Bias giro sugerido: setGyroBias(-0.4318, -0.1643, 0.5116);
+
+--- Fase 2: deriva integrando el giroscopo 60 s ---
+t[s]  sinCorr_x  sinCorr_y  sinCorr_z | conCorr_x  conCorr_y  conCorr_z  [deg]
+   5      -2.13      -0.81      +2.58 |     +0.03      +0.01      +0.02
+  10      -4.30      -1.62      +5.13 |     +0.02      +0.02      +0.02
+  15      -6.43      -2.42      +7.69 |     +0.05      +0.04      +0.02
+  20      -8.53      -3.23     +10.24 |     +0.11      +0.05      +0.01
+  25     -10.60      -4.02     +12.78 |     +0.19      +0.08      -0.01
+  30     -12.71      -4.81     +15.30 |     +0.25      +0.11      -0.05
+  35     -14.84      -5.59     +17.82 |     +0.28      +0.15      -0.08
+  40     -16.93      -6.37     +20.34 |     +0.34      +0.20      -0.12
+  45     -19.00      -7.15     +22.86 |     +0.44      +0.24      -0.16
+  50     -21.09      -7.94     +25.38 |     +0.50      +0.27      -0.20
+  55     -23.20      -8.74     +27.90 |     +0.55      +0.30      -0.24
+  60     -25.36      -9.51     +30.43 |     +0.55      +0.34      -0.27
