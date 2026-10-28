@@ -1,0 +1,192 @@
+<!doctype html>
+<!--
+  Paso 1 de la SPA: se conecta por WebSocket al ESP32 y grafica el seno sintetico.
+  Sirve para verificar el camino de red completo (AP, WebSocket, llegada de tramas)
+  antes de sumar los datos del filtro de Madgwick.
+
+  No abrir con file:// — servir con un servidor local, por ejemplo:
+      python -m http.server 5173
+  y despues abrir http://localhost:5173
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J2 Stylus — Telemetria</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --trace: #2563eb;
+    --ok: #059669;
+    --bad: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115; --fg: #e8e8e8; --muted: #9ca3af;
+      --line: #262a33; --trace: #60a5fa; --ok: #34d399; --bad: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 650; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .estado {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-weight: 600; font-size: 13px; margin-bottom: 20px;
+  }
+  .punto { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); }
+  .estado.on .punto { background: var(--ok); }
+  canvas {
+    width: 100%; height: 220px; display: block;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  }
+  .metricas {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 1px; background: var(--line); border: 1px solid var(--line);
+    border-radius: 8px; overflow: hidden; margin-top: 16px;
+  }
+  .m { background: var(--bg); padding: 12px 14px; }
+  .m .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .m .v { font-size: 22px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .m .v.alerta { color: var(--bad); }
+  footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>J2 Stylus — Telemetria</h1>
+  <div class="sub">Paso 1: seno sintetico desde el ESP32, sin sensores.</div>
+
+  <div class="estado" id="estado"><span class="punto"></span><span id="estadoTxt">desconectado</span></div>
+
+  <canvas id="plot"></canvas>
+
+  <div class="metricas">
+    <div class="m"><div class="k">Tramas/s</div><div class="v" id="mHz">—</div></div>
+    <div class="m"><div class="k">Jitter p2p</div><div class="v" id="mJit">—</div></div>
+    <div class="m"><div class="k">Perdidas</div><div class="v" id="mPerd">0</div></div>
+    <div class="m"><div class="k">Recibidas</div><div class="v" id="mTot">0</div></div>
+  </div>
+
+  <footer>
+    Fuente: <code id="url"></code> — se puede cambiar con <code>?host=192.168.4.1</code>
+  </footer>
+</div>
+
+<script>
+const HOST = new URLSearchParams(location.search).get('host') || '192.168.4.1';
+const URL_WS = `ws://${HOST}:81/`;
+document.getElementById('url').textContent = URL_WS;
+
+const MUESTRAS = 600;                 // ~12 s de historia a 50 Hz
+const serie = [];                     // valores graficados
+
+let total = 0, perdidas = 0, seqPrev = null;
+let llegadas = [];                    // timestamps de llegada del ultimo segundo
+
+// ---- WebSocket con reconexion -------------------------------------------
+let ws = null;
+
+function conectar() {
+  ws = new WebSocket(URL_WS);
+
+  ws.onopen = () => setEstado(true, 'conectado a ' + HOST);
+
+  ws.onmessage = (ev) => {
+    let d;
+    try { d = JSON.parse(ev.data); } catch { return; }
+
+    // hueco en seq = paquetes que no llegaron
+    if (seqPrev !== null && d.seq > seqPrev + 1) perdidas += d.seq - seqPrev - 1;
+    seqPrev = d.seq;
+
+    total++;
+    llegadas.push(performance.now());
+
+    serie.push(d.value);
+    if (serie.length > MUESTRAS) serie.shift();
+  };
+
+  ws.onclose = () => {
+    setEstado(false, 'desconectado — reintentando');
+    setTimeout(conectar, 1000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+function setEstado(ok, txt) {
+  document.getElementById('estado').classList.toggle('on', ok);
+  document.getElementById('estadoTxt').textContent = txt;
+}
+
+// ---- Metricas ------------------------------------------------------------
+setInterval(() => {
+  const ahora = performance.now();
+  llegadas = llegadas.filter(t => ahora - t < 1000);
+
+  document.getElementById('mHz').textContent = llegadas.length || '—';
+  document.getElementById('mTot').textContent = total;
+
+  const perd = document.getElementById('mPerd');
+  perd.textContent = perdidas;
+  perd.classList.toggle('alerta', perdidas > 0);
+
+  // jitter pico a pico: diferencia entre el intervalo mas largo y el mas corto
+  if (llegadas.length > 2) {
+    const dt = [];
+    for (let i = 1; i < llegadas.length; i++) dt.push(llegadas[i] - llegadas[i - 1]);
+    const j = Math.max(...dt) - Math.min(...dt);
+    document.getElementById('mJit').textContent = j.toFixed(1) + ' ms';
+  }
+}, 500);
+
+// ---- Grafico -------------------------------------------------------------
+const cv = document.getElementById('plot');
+const cx = cv.getContext('2d');
+
+function dibujar() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr || cv.height !== h * dpr) {
+    cv.width = w * dpr; cv.height = h * dpr;
+  }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.clearRect(0, 0, w, h);
+
+  const css = getComputedStyle(document.documentElement);
+
+  // eje cero
+  cx.strokeStyle = css.getPropertyValue('--line').trim();
+  cx.lineWidth = 1;
+  cx.beginPath(); cx.moveTo(0, h / 2); cx.lineTo(w, h / 2); cx.stroke();
+
+  // traza: el seno va de -1 a 1, con un margen del 10%
+  if (serie.length > 1) {
+    cx.strokeStyle = css.getPropertyValue('--trace').trim();
+    cx.lineWidth = 2;
+    cx.beginPath();
+    for (let i = 0; i < serie.length; i++) {
+      const x = (i / (MUESTRAS - 1)) * w;
+      const y = h / 2 - serie[i] * (h / 2) * 0.9;
+      i ? cx.lineTo(x, y) : cx.moveTo(x, y);
+    }
+    cx.stroke();
+  }
+
+  requestAnimationFrame(dibujar);
+}
+
+conectar();
+requestAnimationFrame(dibujar);
+</script>
+</body>
+</html>
