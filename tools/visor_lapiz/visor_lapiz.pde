@@ -2,7 +2,14 @@
 // J2 - Pressure Sensitive Stylus  |  Visor de orientacion + dibujo por inclinacion
 // Taller de Proyecto II - UNLP
 //
-// Lee por serie el firmware t4_madgwick (sin modificarlo):
+// Funciona con dos firmwares (se detecta solo por el formato de las lineas):
+//
+// A) firmware/madgwick_filter (recomendado desde el 22/10): beta adaptativo
+//    0,033 en movimiento / 0,1 en reposo, elegido con el ensayo ensayo_beta.
+//    Lineas CSV: q0,q1,q2,q3,roll,pitch,yaw,px,py,pz,quieto,linMagF
+//    Se usa el cuaternion; el desplazamiento (px,py,pz) se ignora.
+//
+// B) firmware de ensayo t4_madgwick (beta fijo, por defecto 0,1):
 //   - al conectar, espera la calibracion y manda "l" para pasar a modo CSV
 //     (t_us,ax,ay,az,gx,gy,gz,q0,q1,q2,q3,roll,pitch,yaw,beta)
 //   - si solo llegan lineas Teleplot (>roll/>pitch/>yaw) tambien funciona,
@@ -16,10 +23,10 @@
 //   ESPACIO  bajar / levantar el lapiz          R  tomar referencia (pose "cero")
 //   C        borrar el lienzo                   S  guardar captura PNG
 //   M        cambiar que ejes mueven X / Y      X / Y  invertir eje horizontal / vertical
-//   + / -    sensibilidad (px por grado)        G  recalibrar giroscopo (dejar quieto)
+//   + / -    sensibilidad (px por grado)        G  recalibrar / reiniciar orientacion (dejar quieto)
 //   1..4     color del trazo                    [ / ]  grosor del trazo
 //
-// Cerrar el monitor serie de PlatformIO antes de abrir este sketch.
+// Cerrar el monitor serie (PlatformIO o Arduino IDE) antes de abrir este sketch.
 // =============================================================================
 
 import processing.serial.*;
@@ -27,6 +34,10 @@ import processing.serial.*;
 // ---------------- configuracion ----------------
 final String PUERTO = "";       // "" = ultimo puerto de la lista; o por ejemplo "COM5"
 final int    BAUD   = 921600;   // igual que monitor_speed en platformio.ini
+// Betas de firmware/madgwick_filter (solo para mostrarlos; deben coincidir con
+// BETA y BETA_REPOSO del firmware)
+final float  BETA_FW_MOV    = 0.033;
+final float  BETA_FW_REPOSO = 0.1;
 
 // ---------------- estado de la orientacion ----------------
 Serial esp;
@@ -41,6 +52,8 @@ String ultimoMsg = "";
 int tConexion;
 boolean pedidoCSV = false;
 volatile boolean calibracionOK = false;
+volatile boolean fwMadgwick = false;   // true si llega el formato de madgwick_filter
+volatile boolean fwQuieto = false;
 
 // tasa de muestras medida en el PC
 volatile int muestras = 0;
@@ -133,6 +146,16 @@ void serialEvent(Serial p) {
     modo = "CSV (cuaternion del Madgwick)";
     return;
   }
+  if (s.startsWith("q0,")) {                     // cabecera de madgwick_filter
+    fwMadgwick = true;
+    modo = "CSV madgwick_filter (beta adaptativo)";
+    return;
+  }
+  if (Character.isLetter(s.charAt(0))) {         // mensajes de madgwick_filter (sin '#')
+    ultimoMsg = s;
+    if (s.indexOf("Calibracion lista") >= 0) calibracionOK = true;
+    return;
+  }
   if (s.startsWith(">")) {                       // modo Teleplot
     int dp = s.indexOf(':');
     if (dp < 0) return;
@@ -152,6 +175,17 @@ void serialEvent(Serial p) {
     return;
   }
   String[] f = split(s, ',');                    // fila CSV
+  if (f.length == 12) {                          // madgwick_filter
+    float w = float(f[0]), x = float(f[1]), y = float(f[2]), z = float(f[3]);
+    if (Float.isNaN(w) || Float.isNaN(z)) return;
+    q = new float[] {w, x, y, z};
+    roll = float(f[4]); pitch = float(f[5]); yaw = float(f[6]);
+    fwQuieto = f[10].trim().equals("1");
+    betaFw = fwQuieto ? BETA_FW_REPOSO : BETA_FW_MOV;
+    if (!fwMadgwick) { fwMadgwick = true; modo = "CSV madgwick_filter (beta adaptativo)"; }
+    muestras++;
+    return;
+  }
   if (f.length == 15) {
     float w = float(f[7]), x = float(f[8]), y = float(f[9]), z = float(f[10]);
     if (Float.isNaN(w) || Float.isNaN(z)) return;
@@ -167,7 +201,7 @@ void draw() {
   background(24, 26, 30);
 
   // pasar el firmware a modo CSV una vez calibrado (o si ya venia corriendo)
-  if (esp != null && !pedidoCSV && !modo.startsWith("CSV")) {
+  if (esp != null && !pedidoCSV && !fwMadgwick && !modo.startsWith("CSV")) {
     if (calibracionOK || (muestras > 50 && millis() - tConexion > 3000)) {
       esp.write("l\n");
       pedidoCSV = true;
@@ -331,7 +365,8 @@ void dibujarHUD() {
   textFont(fuente);
   fill(185);
   String datos = String.format("roll %7.1f   pitch %7.1f   yaw %7.1f  [grados]      tasa %5.1f Hz", roll, pitch, yaw, hz);
-  if (betaFw > 0) datos += String.format("      beta %.3f", betaFw);
+  if (betaFw > 0) datos += String.format("      beta %.3f", betaFw)
+    + (fwMadgwick ? (fwQuieto ? " (adaptativo, reposo)" : " (adaptativo, movimiento)") : "");
   text(datos, MARGEN, 54);
   textFont(fuenteChica);
   fill(130);
@@ -402,7 +437,9 @@ void keyPressed() {
   } else if (key == '-' || key == '_') {
     ganancia = max(ganancia - 2, 2);
   } else if (key == 'g' || key == 'G') {
-    if (esp != null) esp.write("c\n");
+    // t4_madgwick: 'c' recalibra el giroscopo. madgwick_filter: 'z' reinicia la
+    // orientacion desde el acelerometro ('c' ahi solo borra el desplazamiento).
+    if (esp != null) esp.write(fwMadgwick ? "z" : "c\n");
     refTomada = false;
   } else if (key >= '1' && key <= '4') {
     colorIdx = key - '1';

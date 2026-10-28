@@ -110,3 +110,51 @@
 * Cuantificar el error de desplazamiento con trazos de longitud conocida.
 * Evaluar la adopción de β = 0,1 (ensayo del 01-10) frente al β adaptativo actual.
 * Ensamblaje mecánico del lápiz, pendiente de la entrega del sensor KY-024.
+
+## 22-10-2026
+
+**Actividades realizadas**
+
+* Se desarrolló un firmware de ensayo (`firmware/ensayo_beta`) que ejecuta dos filtros de Madgwick en paralelo sobre las mismas muestras, de modo que ambos procesan exactamente el mismo movimiento en una única corrida de 40 s (reposo, inclinación sostenida de 30-45°, sacudida y reposo). Las métricas se calculan sobre la dirección de la gravedad estimada; durante la sacudida se usa como referencia la gravedad del sostén rotada únicamente con el giróscopo, y su validez se controla al final contra el acelerómetro en reposo (error < 2°).
+* Se comparó el β adaptativo del firmware (0,033 en movimiento / 0,5 en reposo) contra β fijo 0,1 (dos corridas, inclinando en X y en Y). El valor 0,5 quintuplicaba el ruido de orientación en reposo (0,57° frente a 0,11° por muestra) sin converger más rápido que 0,1. Durante la sacudida, el β adaptativo tuvo un error alrededor de un 25 % menor.
+* Se bajó el β en reposo a 0,1 (adaptativo 0,033 / 0,1). En dos corridas: ruido en reposo, convergencia y recuperación idénticos a β fijo 0,1, y error durante la sacudida aproximadamente la mitad (RMS 0,36° y 0,50° frente a 0,73° y 0,82°; máximo 0,79° y 1,01° frente a 2,00° y 1,73°).
+* Se adoptó β = 0,033 en movimiento y 0,1 en reposo en `firmware/madgwick_filter`.
+* Se adaptó `visor_lapiz` para funcionar también con `madgwick_filter` (detecta el firmware por el formato de las líneas), de modo que ambos visores usan el β adoptado. Con `t4_madgwick` sigue funcionando igual que antes.
+
+## 23-10-2026
+
+**Actividades realizadas**
+
+* Para determinar si el error del desplazamiento proviene de la doble integración, del acople con la orientación o de una saturación del sensor o del ESP32, se desarrolló el firmware `firmware/ensayo_desplazamiento` y el visor `tools/visor_desplazamiento`. Sobre las mismas muestras se calculan dos desplazamientos: A, con orientación (método actual: aceleración rotada al mundo con el cuaternión y resta de 1 g), y B, sin rotación (resta de una gravedad fija medida en reposo, válido solo si el sensor se desliza sin inclinarse). El visor muestra ambas trayectorias sobre el plano de la mesa, mide cada trazo contra el largo real e informa tasa, tiempo de ciclo, muestras perdidas y saturadas.
+* Al validar el firmware con un sensor simulado se detectó que el detector de reposo de `madgwick_filter` (| |a| - 1 g |) no detecta un deslizamiento sin giro: una aceleración horizontal de 0,12 g eleva |a| a solo 1,007 g, el trazo se toma como reposo y el ZUPT anula la velocidad. En el ensayo se reemplazó por el módulo de la aceleración lineal (aceleración medida menos gravedad estimada).
+* El indicador de giro inicialmente sumaba también el giro alrededor de la vertical, que no afecta a B; se corrigió para medir solo la inclinación.
+* Resultados con el sensor real:
+  * Saturación descartada: 100 Hz, ciclo de 1,8 ms sobre 10 ms disponibles, 0 muestras perdidas y 0 saturadas.
+  * Trazos libres (15 trazos válidos de 20 cm): A midió en promedio el 37 % del largo real y B el 43 %, ambos de forma errática (B entre 3 % y 220 %). B no completa los círculos, la posición se corre sola al dejar el sensor quieto y, tras un rato de uso, se producen saltos de más de 40 cm.
+  * Ida y vuelta en línea recta sobre una regla de 20 cm (22 trazos): A se desplazó 83 cm en una sola dirección sin reproducir el ida y vuelta. B siguió la dirección del movimiento con pasadas de 12-18 cm, pero cada pasada se corrió 2-5 cm hacia el mismo costado (unos 20 cm acumulados), mientras la inclinación estimada subía de 0,6° a 2,0°. El detector de reposo partió varios trazos en tramos de 1-2 cm, por lo que el registro por trazo de B (25 %) subestima el resultado.
+
+<img src="./docs/img/desplazamiento_linea_recta_2026-10-23.png" width="500">
+
+* Conclusión: el problema es la doble integración en sí, no la combinación con la orientación ni una saturación. Una inclinación de 1° deja 0,017 g de gravedad sin restar, que integrada dos veces produce un error de 2 cm en 0,5 s, 9 cm en 1 s y 34 cm en 2 s. Un error menor a 1 cm exigiría conocer la inclinación con centésimas de grado durante el movimiento. Ni otra IMU de 6 ejes ni dos IMUs resuelven el problema, porque comparten la misma gravedad y el error es sistemático, no ruido.
+
+## 27-10-2026
+
+**Actividades realizadas**
+
+* Se definió la arquitectura de la transmisión por Wi-Fi. Por indicación docente, el sistema no puede depender de la red de la facultad el día de la entrega, por lo que el ESP32 levanta su propia red en modo punto de acceso (SoftAP) y la computadora se une a ella. No requiere router, credenciales ni conexión a internet.
+* La SPA corre en la computadora, servida localmente, y el navegador es cliente WebSocket directo del ESP32. Se mantiene así el esquema de la Figura 1 del informe de avance, sin necesidad de alojar la interfaz en la placa.
+* Se implementó el primer paso de la transmisión (`firmware/wifi_stream`): el ESP32 levanta el punto de acceso, abre un servidor WebSocket en el puerto 81 y emite un seno sintético a 50 Hz. No se leen sensores de forma deliberada, para validar el camino de red por separado del firmware de sensado.
+* Cada mensaje incluye un número de secuencia y la marca de tiempo del envío, que permiten medir pérdida de paquetes y jitter de llegada. Ambos campos se conservarán en la versión final por ser datos del análisis de límites.
+* Primera versión de la SPA (`webapp/index.html`): página única con gráfico en Canvas del dato recibido y panel de telemetría (tramas por segundo, jitter pico a pico, paquetes perdidos y total recibido), con reconexión automática.
+* Se verificó el funcionamiento completo sobre la placa: la computadora se une a la red, la página conecta sola y el seno se grafica de forma continua.
+* Se detectó que la placa Heltec WiFi LoRa 32 V3 utilizada para esta prueba monta un ESP32-S3 y no el ESP-WROOM-32 documentado en el informe. Sigue siendo de doble núcleo, por lo que el reparto de tareas previsto no cambia, pero los pines de la sección 3.2 no son válidos en esa placa: GPIO22 no existe en el S3 y GPIO34 no es canal de ADC. Además, el ADC2 queda inutilizable con el Wi-Fi activo, por lo que el sensor Hall deberá conectarse a un canal del ADC1.
+
+**Pendientes**
+
+* Agregar al esquema gráfico el cliente en el MCU y el formato de los mensajes (corrección del informe de avance).
+* Corregir el detector de reposo de `madgwick_filter` (no detecta deslizamientos sin giro).
+* Transmisión WiFi, servidor local y primera versión de la SPA.
+* Ensamblaje mecánico del lápiz, pendiente de la entrega del sensor KY-024.
+* Separar el sensado y la transmisión entre los dos núcleos con una cola intermedia, de modo que la red no pueda interrumpir el muestreo a 100 Hz.
+* Volver a medir la tasa de muestreo y el jitter con el Wi-Fi activo, para verificar que no se degraden los 100 Hz medidos en el Ensayo 2.
+* Reemplazar el dato sintético por el cuaternión, la posición estimada y el estado de contacto.

@@ -1,7 +1,8 @@
 // =============================================================================
-// COPIA CORREGIDA de firmware/madgwick_filter/madgwick_filter.ino (11/10/2026)
-// Cambios: (1) calibracion del acelerometro en cualquier orientacion
-//          (2) atenuacion de velocidad VEL_DECAY 0.98 -> 0.995
+// firmware/madgwick_filter/madgwick_filter.ino
+// Cambios 11/10/2026: (1) calibracion del acelerometro en cualquier orientacion
+//                     (2) atenuacion de velocidad VEL_DECAY 0.98 -> 0.995
+// Cambio 22/10/2026:  (3) beta en reposo BETA_REPOSO 0.5 -> 0.1
 // Buscar "CORRECCION" para ver cada cambio. El resto queda igual al original.
 // =============================================================================
 #include <Wire.h>
@@ -26,8 +27,13 @@
 
 #define SAMPLE_FREQ   100.0f
 #define PERIOD_US     ((unsigned long)(1000000UL / SAMPLE_FREQ))
+// CORRECCION (22/10): BETA_REPOSO 0.5 -> 0.1. Ensayo ensayo_beta (dos filtros en
+// paralelo sobre las mismas muestras): con 0.5 el ruido de orientacion en reposo era
+// 5 veces mayor (0,57 vs 0,11 grados/muestra) sin converger mas rapido que 0.1.
+// Con 0.033 / 0.1 el reposo queda igual que beta fijo 0.1 y durante el movimiento
+// el error es aproximadamente la mitad.
 #define BETA          0.033f   // en movimiento (valor sugerido por Madgwick sin magnetometro)
-#define BETA_REPOSO   0.5f     // en reposo: corrige rapido la inclinacion con la gravedad
+#define BETA_REPOSO   0.1f     // en reposo (mejor valor del ensayo del 01/10)
 #define CALIB_SAMPLES 200
 
 #define G_MS2         9.81f
