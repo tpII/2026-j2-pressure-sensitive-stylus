@@ -149,12 +149,18 @@
 * Se verificó el funcionamiento completo sobre la placa: la computadora se une a la red, la página conecta sola y el seno se grafica de forma continua.
 * Se detectó que la placa Heltec WiFi LoRa 32 V3 utilizada para esta prueba monta un ESP32-S3 y no el ESP-WROOM-32 documentado en el informe. Sigue siendo de doble núcleo, por lo que el reparto de tareas previsto no cambia, pero los pines de la sección 3.2 no son válidos en esa placa: GPIO22 no existe en el S3 y GPIO34 no es canal de ADC. Además, el ADC2 queda inutilizable con el Wi-Fi activo, por lo que el sensor Hall deberá conectarse a un canal del ADC1.
 
+
+## 28-10-2026
+
+**Actividades realizadas**
+
+* Se separó el sensado de la transmisión entre los dos núcleos del ESP32: el muestreo lo dispara un timer de hardware en el núcleo 1 y la transmisión corre en el núcleo 0, con una cola de 32 muestras entre ambos que se escribe sin espera. El muestreo pasó a 100 Hz y las tramas a 50 por segundo, con dos muestras cada una.
+* Se agregaron al firmware contadores de muestras por segundo, período real mínimo y máximo, muestras atrasadas, descartes de cola y tiempo de la tarea de red. Se publican por el puerto serie y en cada trama, y la SPA los muestra aparte de las métricas de red.
+* Se realizo un procedimiento de cinco pruebas, con una medición de referencia sin radio y una falla a proposito en la tarea de red.
+
 **Pendientes**
 
 * Agregar al esquema gráfico el cliente en el MCU y el formato de los mensajes (corrección del informe de avance).
 * Corregir el detector de reposo de `madgwick_filter` (no detecta deslizamientos sin giro).
-* Transmisión WiFi, servidor local y primera versión de la SPA.
 * Ensamblaje mecánico del lápiz, pendiente de la entrega del sensor KY-024.
-* Separar el sensado y la transmisión entre los dos núcleos con una cola intermedia, de modo que la red no pueda interrumpir el muestreo a 100 Hz.
-* Volver a medir la tasa de muestreo y el jitter con el Wi-Fi activo, para verificar que no se degraden los 100 Hz medidos en el Ensayo 2.
 * Reemplazar el dato sintético por el cuaternión, la posición estimada y el estado de contacto.
