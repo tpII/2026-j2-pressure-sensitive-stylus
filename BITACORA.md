@@ -164,3 +164,34 @@
 * Corregir el detector de reposo de `madgwick_filter` (no detecta deslizamientos sin giro).
 * Ensamblaje mecánico del lápiz, pendiente de la entrega del sensor KY-024.
 * Reemplazar el dato sintético por el cuaternión, la posición estimada y el estado de contacto.
+
+## 03-11-2026
+
+**Actividades realizadas**
+
+* Identificación del patillaje y conexionado del sensor Hall lineal SS49E (mirando la cara plana: Pin 1 VCC, Pin 2 GND, Pin 3 OUT). Se soldaron cables y se fijaron con cinta para evitar movimientos.
+* Validación eléctrica con multímetro sobre Arduino Uno alimentando a 3.3 V:
+  * Reposo (sin imán): salida estable en 1.64 V - 1.65 V (mitad de VCC).
+  * Con imán cilíndrico: la tensión asciende hasta 2.3 V - 2.4 V y retorna a la línea base al alejarlo.
+* Conexión de la salida al pin analógico A0 del microcontrolador.
+* Configuración del proyecto en PlatformIO para Arduino Uno a 115200 baudios y desarrollo del firmware inicial (`main.cpp`): adquisición a 50 Hz (período de 20 ms con `millis()`) leyendo `analogRead(A0)` en crudo, sin filtros, enviando valor del ADC y voltaje por puerto serie.
+* Puesta en marcha del dashboard web local (`node serve.js` vía Web Serial al COM5):
+  * Se visualizó la señal cruda en tiempo real: reposo en ~1.60 V - 1.64 V (~330 cuentas de ADC) y picos de 2.35 V - 2.40 V (~490 cuentas) al acercar el imán.
+  * Se confirmó la respuesta del sensor a 3.3 V y la estabilidad del conexionado previo a la integración en el microcontrolador final.
+
+---
+
+## 04-11-2026
+
+**Actividades realizadas**
+
+* Implementación de procesamiento digital sobre la lectura de A0 en el firmware:
+  * **Filtro paso bajos IIR (EMA):** se aplicó suavizado exponencial de primer orden con $\alpha = 0.20$ para atenuar el ruido de alta frecuencia sin introducir retardo perceptible en la respuesta.
+  * **Descarte de picos:** se incorporó un descarte de saltos bruscos (`SPIKE_THRESHOLD = 80`) para evitar lecturas espurias por falsos contactos o rebotes, validando la variación únicamente si se sostiene por dos ciclos consecutivos.
+  * Se inicializaron las variables del filtro con la primera lectura del ADC para evitar arranques transitorios en 0 V.
+* Validación con el visualizador web en tiempo real:
+  * El ruido pico a pico en reposo bajó a unas 6 cuentas (~29 mV), eliminando el serrucho de la señal cruda y manteniendo una respuesta rápida al presionar y soltar el imán.
+
+**Pendientes**
+
+* Adaptar el firmware para validar la adquisición y el filtrado sobre una placa ESP.
