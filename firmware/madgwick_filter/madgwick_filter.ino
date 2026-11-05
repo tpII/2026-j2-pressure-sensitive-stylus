@@ -27,7 +27,7 @@
 
 #define SAMPLE_FREQ   100.0f
 #define PERIOD_US     ((unsigned long)(1000000UL / SAMPLE_FREQ))
-// CORRECCION (22/10): BETA_REPOSO 0.5 -> 0.1. Ensayo ensayo_beta (dos filtros en
+// CORRECCION (22/10): BETA_REPOSO 0.5 -> 0.1. Ensayo ensayo_beta_adaptativo_vs_fijo (dos filtros en
 // paralelo sobre las mismas muestras): con 0.5 el ruido de orientacion en reposo era
 // 5 veces mayor (0,57 vs 0,11 grados/muestra) sin converger mas rapido que 0.1.
 // Con 0.033 / 0.1 el reposo queda igual que beta fijo 0.1 y durante el movimiento

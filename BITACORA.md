@@ -99,9 +99,13 @@
 
 **Actividades realizadas**
 
-* Se desarrolló un visor de orientación en Processing 4 (`visor_lapiz`) que funciona con el firmware de ensayo `t4_madgwick` sin modificarlo: al conectarse espera el fin de la calibración y envía el comando `l` para recibir el cuaternión en formato CSV. Si solo llega la salida para Teleplot, reconstruye el cuaternión desde roll, pitch y yaw.
+* Se desarrolló un visor de orientación en Processing 4 (`visor_orientacion_dibujo`) que funciona con el firmware de ensayo `t4_madgwick` sin modificarlo: al conectarse espera el fin de la calibración y envía el comando `l` para recibir el cuaternión en formato CSV. Si solo llega la salida para Teleplot, reconstruye el cuaternión desde roll, pitch y yaw.
 * El visor tiene dos paneles: un modelo 3D del módulo GY-521 con sus ejes, rotado según la orientación relativa a una pose de referencia (tecla R), y un lienzo donde se dibuja inclinando el sensor.
 * En la primera versión el dibujo no respondía de forma intuitiva: el cursor seguía el ángulo de giro alrededor de cada eje, pero girar alrededor de un eje inclina el sensor en la dirección perpendicular, y el giro sobre el propio eje vertical también movía el cursor. Se reescribió como joystick: al tomar la referencia se detecta qué eje del sensor queda vertical y el cursor sigue la inclinación de ese eje. Así el giro sobre la vertical (y la deriva del yaw) no afecta el trazo.
+* Al probar el visualizador 3D (`visor_trayectoria_3d`) con el firmware `madgwick_filter`, la trayectoria se desplazaba al rotar el sensor sin trasladarlo y los trazos salían mucho más cortos que el movimiento real. Se identificaron dos causas:
+  * La calibración inicial suponía el sensor apoyado plano y tomaba como offset todo lo distinto de (0, 0, 1 g). Con el sensor de costado en la protoboard se restaba 1 g del eje X y se sumaba 1 g al Z, y el residuo de gravedad mal restada se integraba como desplazamiento.
+  * La atenuación de la velocidad de 0,98 por muestra la reducía a la mitad en ~0,35 s, acortando los trazos.
+* Se corrigieron ambos puntos en el firmware (`madgwick_filter`): la calibración toma como gravedad el vector unitario en la dirección medida en reposo (válida en cualquier posición) y la atenuación pasó a 0,995 por muestra (~2 s de constante de tiempo), ya que el ZUPT anula la velocidad en cada reposo.
 * Se grabó el video demostrativo con el visor: respuesta del modelo 3D a rotaciones en cada eje, estabilidad al soltar el sensor y dejarlo en reposo, y un trazo de prueba por inclinación. El desplazamiento no se incluyó por no estar validado.
 
 
@@ -115,17 +119,17 @@
 
 **Actividades realizadas**
 
-* Se desarrolló un firmware de ensayo (`firmware/ensayo_beta`) que ejecuta dos filtros de Madgwick en paralelo sobre las mismas muestras, de modo que ambos procesan exactamente el mismo movimiento en una única corrida de 40 s (reposo, inclinación sostenida de 30-45°, sacudida y reposo). Las métricas se calculan sobre la dirección de la gravedad estimada; durante la sacudida se usa como referencia la gravedad del sostén rotada únicamente con el giróscopo, y su validez se controla al final contra el acelerómetro en reposo (error < 2°).
+* Se desarrolló un firmware de ensayo (`firmware/ensayo_beta_adaptativo_vs_fijo`) que ejecuta dos filtros de Madgwick en paralelo sobre las mismas muestras, de modo que ambos procesan exactamente el mismo movimiento en una única corrida de 40 s (reposo, inclinación sostenida de 30-45°, sacudida y reposo). Las métricas se calculan sobre la dirección de la gravedad estimada; durante la sacudida se usa como referencia la gravedad del sostén rotada únicamente con el giróscopo, y su validez se controla al final contra el acelerómetro en reposo (error < 2°).
 * Se comparó el β adaptativo del firmware (0,033 en movimiento / 0,5 en reposo) contra β fijo 0,1 (dos corridas, inclinando en X y en Y). El valor 0,5 quintuplicaba el ruido de orientación en reposo (0,57° frente a 0,11° por muestra) sin converger más rápido que 0,1. Durante la sacudida, el β adaptativo tuvo un error alrededor de un 25 % menor.
 * Se bajó el β en reposo a 0,1 (adaptativo 0,033 / 0,1). En dos corridas: ruido en reposo, convergencia y recuperación idénticos a β fijo 0,1, y error durante la sacudida aproximadamente la mitad (RMS 0,36° y 0,50° frente a 0,73° y 0,82°; máximo 0,79° y 1,01° frente a 2,00° y 1,73°).
 * Se adoptó β = 0,033 en movimiento y 0,1 en reposo en `firmware/madgwick_filter`.
-* Se adaptó `visor_lapiz` para funcionar también con `madgwick_filter` (detecta el firmware por el formato de las líneas), de modo que ambos visores usan el β adoptado. Con `t4_madgwick` sigue funcionando igual que antes.
+* Se adaptó `visor_orientacion_dibujo` para funcionar también con `madgwick_filter` (detecta el firmware por el formato de las líneas), de modo que ambos visores usan el β adoptado. Con `t4_madgwick` sigue funcionando igual que antes.
 
 ## 23-10-2026
 
 **Actividades realizadas**
 
-* Para determinar si el error del desplazamiento proviene de la doble integración, del acople con la orientación o de una saturación del sensor o del ESP32, se desarrolló el firmware `firmware/ensayo_desplazamiento` y el visor `tools/visor_desplazamiento`. Sobre las mismas muestras se calculan dos desplazamientos: A, con orientación (método actual: aceleración rotada al mundo con el cuaternión y resta de 1 g), y B, sin rotación (resta de una gravedad fija medida en reposo, válido solo si el sensor se desliza sin inclinarse). El visor muestra ambas trayectorias sobre el plano de la mesa, mide cada trazo contra el largo real e informa tasa, tiempo de ciclo, muestras perdidas y saturadas.
+* Para determinar si el error del desplazamiento proviene de la doble integración, del acople con la orientación o de una saturación del sensor o del ESP32, se desarrolló el firmware `firmware/ensayo_desplazamiento_integracion_pura` y el visor `tools/visor_desplazamiento_integracion_pura`. Sobre las mismas muestras se calculan dos desplazamientos: A, con orientación (método actual: aceleración rotada al mundo con el cuaternión y resta de 1 g), y B, sin rotación (resta de una gravedad fija medida en reposo, válido solo si el sensor se desliza sin inclinarse). El visor muestra ambas trayectorias sobre el plano de la mesa, mide cada trazo contra el largo real e informa tasa, tiempo de ciclo, muestras perdidas y saturadas.
 * Al validar el firmware con un sensor simulado se detectó que el detector de reposo de `madgwick_filter` (| |a| - 1 g |) no detecta un deslizamiento sin giro: una aceleración horizontal de 0,12 g eleva |a| a solo 1,007 g, el trazo se toma como reposo y el ZUPT anula la velocidad. En el ensayo se reemplazó por el módulo de la aceleración lineal (aceleración medida menos gravedad estimada).
 * El indicador de giro inicialmente sumaba también el giro alrededor de la vertical, que no afecta a B; se corrigió para medir solo la inclinación.
 * Resultados con el sensor real:
@@ -158,3 +162,26 @@
 * Separar el sensado y la transmisión entre los dos núcleos con una cola intermedia, de modo que la red no pueda interrumpir el muestreo a 100 Hz.
 * Volver a medir la tasa de muestreo y el jitter con el Wi-Fi activo, para verificar que no se degraden los 100 Hz medidos en el Ensayo 2.
 * Reemplazar el dato sintético por el cuaternión, la posición estimada y el estado de contacto.
+
+## 29-10-2026
+
+**Actividades realizadas**
+
+* Se modificó el ensayo de desplazamiento (`firmware/ensayo_desplazamiento_integracion_pura` y `tools/visor_desplazamiento_integracion_pura`) para medir la doble integración sin ninguna corrección: sin ZUPT, sin zona muerta, sin atenuación de la velocidad y sin detector de reposo. La integración solo se reinicia con la tecla `c`, que toma una referencia de 1 s con el sensor quieto (gravedad y bias del giróscopo).
+* Se fijó β = 0,033 en el ensayo, porque el β adaptativo dependía del detector de reposo, que ya no se usa. B resta la gravedad medida en la referencia, en los ejes del propio sensor, de modo que el offset del acelerómetro se cancela.
+* El firmware transmite además la lectura cruda (ax…gz) y la calibración (`#cfg`), y el visor graba cada corrida en un CSV con su etiqueta (reposo, trazo de L cm o libre), para reprocesar en la PC.
+* Se agregó `tools/analizar_desplazamiento.py`, que ajusta la deriva en reposo a d = ½·b·g·t² y obtiene el error de aceleración constante equivalente b, además de comparar los trazos con su largo real.
+* Resultados con el sensor quieto (cinco corridas válidas, de 14 a 524 s, con dos módulos MPU6050):
+  * B (sin Madgwick): b entre 0,15 y 0,98 mg (media de 0,54 mg). Equivale a unos 3 mm de error en un trazo de 1 s y 11 mm en uno de 2 s.
+  * A (con Madgwick): b entre 0,01 y 1,10 mg. En el plano, el filtro absorbe el residuo como si fuera inclinación, lo que en reposo favorece a A pero en movimiento absorbe parte de la aceleración real del trazo.
+  * Se descartó la corrida `20261029_221855`: el sensor se movió (inclinación de hasta 8,3°).
+* Conclusión: el piso del sensor en reposo es entre 17 y 110 veces menor que los 17 mg que deja 1° de inclinación mal estimada. El error en movimiento proviene de la orientación durante el trazo, no del ruido ni del offset del sensor, y no se resuelve cambiando de módulo.
+
+**Pendientes**
+
+* Repetir el reposo con los dos módulos en las mismas condiciones (5 min encendidos y 60 s quietos) para poder compararlos.
+* Trazos de 5, 10 y 20 cm deslizando sin inclinar, los mismos agarrando el sensor como un lápiz, y círculos de 5 cm, para cuantificar el error en movimiento.
+* Consultar con el docente el alcance del objetivo de desplazamiento.
+* Corregir el detector de reposo de `madgwick_filter`.
+* Separar sensado y transmisión entre los dos núcleos, y medir tasa y jitter con el Wi-Fi activo.
+* Ensamblaje mecánico del lápiz, pendiente de la entrega del sensor KY-024.

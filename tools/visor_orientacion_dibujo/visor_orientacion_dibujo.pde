@@ -5,11 +5,12 @@
 // Funciona con dos firmwares (se detecta solo por el formato de las lineas):
 //
 // A) firmware/madgwick_filter (recomendado desde el 22/10): beta adaptativo
-//    0,033 en movimiento / 0,1 en reposo, elegido con el ensayo ensayo_beta.
+//    0,033 en movimiento / 0,1 en reposo, elegido con el ensayo ensayo_beta_adaptativo_vs_fijo.
 //    Lineas CSV: q0,q1,q2,q3,roll,pitch,yaw,px,py,pz,quieto,linMagF
 //    Se usa el cuaternion; el desplazamiento (px,py,pz) se ignora.
 //
-// B) firmware de ensayo t4_madgwick (beta fijo, por defecto 0,1):
+// B) firmware de ensayo t4_madgwick (beta fijo, por defecto 0,1; ya no esta en el
+//    repo, queda en el historial de git anterior al 04/11):
 //   - al conectar, espera la calibracion y manda "l" para pasar a modo CSV
 //     (t_us,ax,ay,az,gx,gy,gz,q0,q1,q2,q3,roll,pitch,yaw,beta)
 //   - si solo llegan lineas Teleplot (>roll/>pitch/>yaw) tambien funciona,
