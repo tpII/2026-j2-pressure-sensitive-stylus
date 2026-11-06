@@ -223,3 +223,28 @@
 **Pendientes**
 
 * Adaptar el firmware para validar la adquisición y el filtrado sobre una placa ESP.
+
+---
+
+## 05-11-2026
+
+**Actividades realizadas**
+
+* Se repitió el reposo con los dos módulos MPU6050 en las mismas condiciones. Los dos dan una deriva de 0,1 a 0,3 mg (1 a 2 mm en un trazo de 2 s). Se eligió el módulo usado hasta ahora, porque el otro tiene un offset del giróscopo anómalo (−24 °/s en x).
+* Se agregó `tools/calibrar_imu.py`, que calcula el offset y la escala del acelerómetro (6 caras quietas) y la escala del giróscopo (giros de 360°) y los guarda en `tools/calibracion_imu.json`. La calibración corrige un error de |g| de hasta 47 mg según la cara (≈2,7° de inclinación falsa); se usaron 6 posiciones, así que el ajuste no tiene posiciones de sobra para verificarlo. El error de escala del giróscopo es menor al 0,5 %.
+* Se agregó `tools/reprocesar_desplazamiento.py`, que recalcula el desplazamiento en la PC a partir de la lectura cruda y compara variantes sobre las mismas muestras.
+* Trazos deslizando el sensor sin inclinarlo (5, 10 y 20 cm, 26 corridas):
+  * Con Madgwick (β = 0,033) durante el trazo, el error es de ~50 %: el filtro toma la aceleración del trazo como inclinación.
+  * Con la orientación solo del giróscopo durante el trazo (β = 0) y la corrección de velocidad al frenar, el error baja a 2–10 % (los largos se marcaron a ojo).
+* Círculos de 5 cm (3 vueltas seguidas, 7 a 10 s): el diámetro dio 8–11 cm y no cerró por 1–4 cm. En movimientos continuos largos la deriva sigue siendo grande.
+* Se integró el sensor Hall SS49E al ESP32 en un firmware nuevo, `firmware/ensayo_desplazamiento_hall` (salida al GPIO 4, filtro EMA y descarte de picos, contacto con histéresis). Base de 1708 mV y ruido de 20–30 mV; detecta los dos polos del imán.
+* Pruebas con el Hall: los trazos cortados por contacto miden igual que cortados por reposo (5,1–6,5 cm en trazos de 5 cm). En trazos encadenados, reiniciar la integración en cada apoyo da ~0 cm, porque el lápiz se mueve en ese instante; integrando la pasada completa de reposo a reposo, el recorrido dio 9,7 cm contra 9,5 cm reales.
+* Se agregó `tools/visor_dibujo_hall`, una muestra de la versión final: dibuja moviendo el sensor, deja tinta solo con contacto del Hall y el grosor depende de la presión. El trazo se vuelve definitivo al frenar, y cada reposo es el nuevo punto de partida.
+* Conclusión: con IMU y Hall se puede dibujar en trazos cortos con pausas. Las pasadas continuas de más de unos segundos siguen derivando.
+
+**Pendientes**
+
+* Prueba agarrando el sensor como un lápiz real (inclinado), con el mecanismo de la punta.
+* Repetir los trazos encadenados con el contacto dado por la punta del lápiz, no con un imán a mano.
+* Pasar el Hall a un pin del ADC1 cuando se integre con `wifi_stream`.
+* Presentar el visor de dibujo al docente y acordar el alcance del objetivo de desplazamiento.

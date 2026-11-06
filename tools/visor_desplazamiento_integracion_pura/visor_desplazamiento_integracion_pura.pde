@@ -2,7 +2,9 @@
 // J2 - Pressure Sensitive Stylus  |  Visor de DESPLAZAMIENTO (integracion pura)
 // Taller de Proyecto II - UNLP
 //
-// Se usa con el firmware firmware/ensayo_desplazamiento_integracion_pura. Muestra en tiempo real,
+// Se usa con el firmware firmware/ensayo_desplazamiento_integracion_pura o con
+// firmware/ensayo_desplazamiento_hall (igual + sensor Hall: muestra el contacto y
+// lo graba en la corrida). Muestra en tiempo real,
 // vista desde arriba (plano de la mesa), las dos posiciones que calcula el
 // firmware con las mismas muestras y SIN correcciones (la integracion no se
 // frena nunca, solo se reinicia con C):
@@ -19,7 +21,10 @@
 // tools/analizar_desplazamiento.py.
 //
 // Teclas:
-//   E        etiqueta de la PROXIMA corrida (reposo / trazo_5cm / trazo_10cm / trazo_20cm / libre)
+//   E / W    etiqueta de la PROXIMA corrida, siguiente / anterior (reposo / trazo_*cm deslizando /
+//            lapiz_*cm agarrado como lapiz / circulo_5cm / calib_6caras / giro_360 /
+//            hall_trazo_10cm / encadenado_3x5cm / libre)
+//   H        (firmware con Hall) nueva base del Hall: SIN iman cerca, 1 s
 //   C        nueva referencia (sensor QUIETO 1 s) y nueva corrida
 //   M        marca en la corrida (por ejemplo, inicio / fin de un movimiento)
 //   1 2      mostrar / ocultar A, B
@@ -34,7 +39,10 @@ import processing.serial.*;
 final String PUERTO = "";       // "" = ultimo puerto de la lista; o por ejemplo "COM5"
 final int    BAUD   = 921600;
 final float  INCL_MAX = 3.0;    // [grados] por encima B deja de ser valido
-final String[] ETIQUETAS = {"reposo", "trazo_5cm", "trazo_10cm", "trazo_20cm", "libre"};
+final String[] ETIQUETAS = {"reposo", "trazo_5cm", "trazo_10cm", "trazo_20cm",
+                            "lapiz_5cm", "lapiz_10cm", "lapiz_20cm", "circulo_5cm",
+                            "calib_6caras", "giro_360", "hall_trazo_10cm", "encadenado_3x5cm",
+                            "libre"};
 final int    MAX_MUESTRAS = 180000;   // 30 min a 100 Hz
 
 // ---------------- datos (los escribe el hilo serie) ----------------
@@ -44,6 +52,10 @@ ArrayList<float[]> hist = new ArrayList<float[]>();   // {t_s, Au, Av, Bu, Bv}
 float Au, Av, An, Bu, Bv, Bn, incl, tSeg;
 float inclMax = 0;
 boolean verA = true, verB = true;
+// Hall (solo con firmware/ensayo_desplazamiento_hall)
+boolean hayHall = false, contacto = false;
+float hallMV = 0, hallBase = 0;
+int apoyos = 0;
 
 // corrida (archivo)
 PrintWriter corrida = null;
@@ -114,13 +126,18 @@ void serialEvent(Serial p) {
       if (corrida != null) corrida.println(s);
       if (!s.startsWith("#cols") && !s.startsWith("#cfg")) ultimoMsg = s.substring(1).trim();
       if (s.indexOf("Calibracion OK") >= 0) modo = "recibiendo datos";
+      int ib = s.indexOf("hall_base_mV=");
+      if (ib >= 0) {
+        String[] pz = splitTokens(s.substring(ib + 13), " ");
+        if (pz.length > 0 && !Float.isNaN(float(pz[0]))) hallBase = float(pz[0]);
+      }
       return;
     }
     if (!s.startsWith("D,")) return;
     String[] f = split(s, ',');
-    if (f.length != 17) return;
-    float[] v = new float[16];
-    for (int i = 0; i < 16; i++) {
+    if (f.length != 17 && f.length != 19) return;
+    float[] v = new float[f.length - 1];
+    for (int i = 0; i < v.length; i++) {
       v[i] = float(f[i + 1]);
       if (Float.isNaN(v[i])) return;
     }
@@ -139,6 +156,14 @@ void serialEvent(Serial p) {
     if (ultimoT >= 0 && t - ultimoT > 15) perdidas += round((t - ultimoT) / 10.0) - 1;
     ultimoT = t;
 
+    if (v.length == 18) {
+      hayHall = true;
+      hallMV = v[16];
+      boolean c = v[17] > 0.5;
+      if (c && !contacto) apoyos++;
+      contacto = c;
+    }
+
     hist.add(new float[] {tSeg, Au, Av, Bu, Bv});
     if (hist.size() > MAX_MUESTRAS) hist.remove(0);
   }
@@ -149,7 +174,7 @@ void nuevaCorrida() {
   cerrarCorrida();
   hist.clear();
   muestras = 0; satTotal = 0; perdidas = 0; ultimoT = -1;
-  cicloMax = 0; cicloSuma = 0; inclMax = 0; marcas = 0;
+  cicloMax = 0; cicloSuma = 0; inclMax = 0; marcas = 0; apoyos = 0;
   Au = Av = An = Bu = Bv = Bn = 0; tSeg = 0;
   centroU = 0; centroV = 0;
   String sello = nf(year(), 4) + nf(month(), 2) + nf(day(), 2) + "_" + nf(hour(), 2) + nf(minute(), 2) + nf(second(), 2);
@@ -309,13 +334,26 @@ void dibujarPanel() {
   text(String.format("tasa %5.1f Hz  ciclo %4.0f / %.0f us", hz, cicloMed, cicloMax), x0, y + 20);
   fill(perdidas > 0 || satTotal > 0 ? color(230, 120, 60) : color(215));
   text(String.format("perdidas %d  saturadas %d", perdidas, satTotal), x0, y + 38);
+
+  if (hayHall) {
+    y += 62;
+    fill(240);
+    textFont(fuente);
+    text("Hall SS49E", x0, y);
+    textFont(fuenteMono);
+    fill(contacto ? color(110, 200, 130) : color(185));
+    text(String.format("%4.0f mV (base %4.0f, dif %+4.0f)  %s", hallMV, hallBase, hallMV - hallBase,
+                       contacto ? "CONTACTO" : "sin contacto"), x0, y + 20);
+    fill(185);
+    text(String.format("apoyos en la corrida: %d   (H: nueva base, sin iman)", apoyos), x0, y + 38);
+  }
   popStyle();
 }
 
 // Distancia al origen en el plano vs tiempo, con curvas de error constante
 // de aceleracion: d = 1/2 * b * g * t^2 (1 mg y 10 mg)
 void dibujarGrafico() {
-  int x0 = width - PANEL - 10, y0 = 380, w = PANEL - 10, h = height - y0 - 60;
+  int x0 = width - PANEL - 10, y0 = hayHall ? 445 : 380, w = PANEL - 10, h = height - y0 - 60;
   pushStyle();
   fill(240);
   textFont(fuente);
@@ -416,6 +454,10 @@ void keyPressed() {
     modo = "tomando referencia (sensor QUIETO 1 s)...";
   } else if (key == 'e' || key == 'E') {
     etiquetaIdx = (etiquetaIdx + 1) % ETIQUETAS.length;
+  } else if (key == 'w' || key == 'W') {
+    etiquetaIdx = (etiquetaIdx + ETIQUETAS.length - 1) % ETIQUETAS.length;
+  } else if (key == 'h' || key == 'H') {
+    if (esp != null) esp.write("h");
   } else if (key == 'm' || key == 'M') {
     synchronized (lock) {
       if (corrida != null) {

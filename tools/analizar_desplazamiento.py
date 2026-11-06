@@ -43,6 +43,7 @@ T_DERIVA = [0.5, 1, 2, 5, 10]
 INCL_MAX = 3.0
 
 COLS = ["t_ms", "Au", "Av", "An", "Bu", "Bv", "Bn", "incl", "sat", "ciclo", "ax", "ay", "az", "gx", "gy", "gz"]
+COLS_HALL = ["hall_mV", "contacto"]   # solo con firmware/ensayo_desplazamiento_hall
 
 
 def leer_corrida(ruta):
@@ -58,15 +59,18 @@ def leer_corrida(ruta):
                     marcas.append(int(m.group(1)) / 1000.0)
             elif linea.startswith("D,"):
                 partes = linea.split(",")
-                if len(partes) == 17:
+                # 17 campos: ensayo_desplazamiento_integracion_pura
+                # 19 campos: ensayo_desplazamiento_hall (+ hall_mV, contacto)
+                if len(partes) in (17, 19):
                     try:
                         filas.append([float(x) for x in partes[1:]])
                     except ValueError:
                         pass
     if not filas:
         return None
-    a = np.array(filas)
-    d = {c: a[:, i] for i, c in enumerate(COLS)}
+    n = min(len(f) for f in filas)
+    a = np.array([f[:n] for f in filas])
+    d = {c: a[:, i] for i, c in enumerate(COLS + COLS_HALL) if i < n}
     d["t"] = d["t_ms"] / 1000.0
     d["dA"] = np.hypot(d["Au"], d["Av"])
     d["dB"] = np.hypot(d["Bu"], d["Bv"])
@@ -74,7 +78,7 @@ def leer_corrida(ruta):
 
 
 def largo_real(etiqueta):
-    m = re.match(r"trazo_(\d+(?:\.\d+)?)cm", etiqueta)
+    m = re.match(r"(?:trazo|lapiz)_(\d+(?:\.\d+)?)cm", etiqueta)
     return float(m.group(1)) if m else None
 
 

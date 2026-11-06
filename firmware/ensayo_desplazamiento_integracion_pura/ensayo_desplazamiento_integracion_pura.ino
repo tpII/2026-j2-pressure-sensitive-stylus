@@ -2,8 +2,8 @@
 // ENSAYO DE DESPLAZAMIENTO - integracion doble SIN correcciones
 // J2 - Pressure Sensitive Stylus | Taller de Proyecto II - UNLP
 //
-// Pregunta del ensayo: ¿se puede calcular el desplazamiento del lapiz con esta
-// IMU (MPU6050) integrando dos veces la aceleracion? Si no, se pasa al plan B.
+// ¿se puede calcular el desplazamiento del lapiz con esta
+// IMU (MPU6050) integrando dos veces la aceleracion?
 //
 // Sobre las MISMAS muestras se integran dos posiciones, sin ninguna correccion
 // (sin ZUPT, sin zona muerta, sin atenuacion de velocidad, sin detector de
