@@ -27,7 +27,7 @@
 
 import processing.serial.*;
 
-final String PUERTO = "";       // "" = ultimo puerto de la lista; o por ejemplo "COM5"
+final String PUERTO = "COM3";       // "" = ultimo puerto de la lista; o por ejemplo "COM5"
 final int    BAUD   = 921600;
 final int    PANEL  = 400;
 

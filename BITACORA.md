@@ -242,7 +242,7 @@
 * Se agregó `tools/visor_dibujo_hall`, una muestra de la versión final: dibuja moviendo el sensor, deja tinta solo con contacto del Hall y el grosor depende de la presión. El trazo se vuelve definitivo al frenar, y cada reposo es el nuevo punto de partida.
 * Conclusión: con IMU y Hall se puede dibujar en trazos cortos con pausas. Las pasadas continuas de más de unos segundos siguen derivando.
 
-**Pendientes**
+**Pendientes** 
 
 * Prueba agarrando el sensor como un lápiz real (inclinado), con el mecanismo de la punta.
 * Repetir los trazos encadenados con el contacto dado por la punta del lápiz, no con un imán a mano.
