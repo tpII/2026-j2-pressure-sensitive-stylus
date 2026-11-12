@@ -248,3 +248,53 @@
 * Repetir los trazos encadenados con el contacto dado por la punta del lápiz, no con un imán a mano.
 * Pasar el Hall a un pin del ADC1 cuando se integre con `wifi_stream`.
 * Presentar el visor de dibujo al docente y acordar el alcance del objetivo de desplazamiento.
+
+---
+
+## 09-11-2026
+
+**Actividades realizadas**
+
+* Se agregaron herramientas para las pruebas que faltan:
+  * `tools/visor_joystick_hall`: alternativa en la que el cursor se mueve con la inclinación del lápiz (no con la doble integración), con embrague por el Hall y grosor por presión.
+  * `tools/calibrar_presion_hall.py`: curva de presión del Hall con una balanza (fuerza mínima de contacto, resolución e histéresis).
+  * `firmware/ensayo_latencia_wifi` y `tools/medir_latencia_wifi`: medición de la latencia del enlace Wi-Fi (ida y vuelta) con las tramas circulando.
+
+---
+
+## 10-11-2026
+
+**Actividades realizadas**
+
+* Se agregó `firmware/ensayo_dmp_vs_madgwick`, que lee en cada muestra el cuaternión del DMP del MPU6050 y la lectura cruda, y `tools/comparar_dmp_madgwick.py`, que graba las corridas y calcula sobre la misma lectura cuatro variantes del Madgwick (β fijo 0,1 y 0,033, adaptativo y β = 0 en movimiento).
+
+---
+
+## 11-11-2026
+
+**Actividades realizadas**
+
+* Ensayo DMP contra Madgwick (reposo, 6 caras, deslizar 10 cm sin inclinar y giros volviendo al mismo tope):
+  * En reposo el DMP tiene menos ruido de inclinación (0,005° contra 0,03–0,05°) y deriva del *yaw* de 0,25 °/min; el Madgwick que recalibra el bias en reposo queda en ~0.
+  * Quieto, los dos coinciden con el acelerómetro (0,01–0,02°): la exactitud estática la pone la calibración del acelerómetro, no el filtro.
+  * Deslizando 10 cm, el error del largo fue de 27 % con el DMP, 4,9 % con β = 0 en movimiento y 40–68 % con β fijo.
+  * Volviendo al mismo tope, el DMP no vuelve por 0,57° en *yaw* (0,03° el Madgwick) y tiene ~10 ms de retardo.
+  * Se descartaron dos corridas de reposo (escala del acelerómetro mal leída en la primera versión del firmware) y una de deslizar (vacía).
+  * Conclusión: se sigue con el Madgwick. El DMP no permite cambiar la ganancia durante el trazo, no acepta la calibración propia y fija las escalas en ±2 g y ±2000 °/s.
+* Se probó la versión joystick sin registrar resultados: funciona aceptablemente.
+* Se armó el lápiz sin el Hall: IMU a 12,5 cm de la punta, con el eje Y del sensor a lo largo del lápiz, apuntando hacia arriba.
+* Trazos rectos de 5, 10 y 20 cm y círculos de 5 cm con el lápiz en la mano:
+  * Con el lápiz en la mano el giróscopo varía 1–2 °/s por el pulso (apoyado en la mesa, 0,05 °/s), así que las pausas en la mano no sirven para estimar el bias.
+  * El bias de este módulo, medido con el lápiz acostado en la mesa, es −1,17 / −0,28 / −1,39 °/s y es estable.
+  * Con el bias de cada pausa en la mano, la mediana del error fue de 281 %; con el bias fijo medido en la mesa, de 70 % (61 % con la corrección de la posición de la punta).
+  * Levantar o acostar el lápiz dentro de una pasada gira ~275° y deja la orientación corrida 2°, lo que arruina el trazo.
+  * Conclusión: el método de trazos cortos validado sobre la mesa (2–10 %) todavía no se sostiene con el lápiz en la mano.
+* Se agregó `tools/visor_lapiz_hall` (`MotorLapiz.java`), una versión del visor de dibujo para el lápiz armado: bias medido con el lápiz acostado en la mesa, pausas detectadas con el lápiz en la mano, posición de la punta y descarte de las pasadas con giros grandes. Todavía no se probó con el lápiz.
+
+**Pendientes**
+
+* Probar `visor_lapiz_hall` con el lápiz armado y el Hall montado.
+* Montar el Hall y el imán en la punta del lápiz; curva de presión con `calibrar_presion_hall.py`.
+* Definir con el docente el alcance del objetivo de desplazamiento (IMU, versión joystick o sensor óptico en la punta).
+* Medición de latencia Wi-Fi (Juan Pablo).
+* Pasar el Hall a un pin del ADC1 cuando se integre con `wifi_stream`.

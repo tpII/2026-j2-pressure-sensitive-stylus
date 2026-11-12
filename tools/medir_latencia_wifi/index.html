@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Latencia Wi-Fi J2</title>
+<!--
+  J2 - Pressure Sensitive Stylus | Taller de Proyecto II - UNLP
+  Medicion de la latencia del enlace Wi-Fi con firmware/ensayo_latencia_wifi.
+
+  Uso:
+    1. Cargar firmware/ensayo_latencia_wifi en el ESP32.
+    2. Conectar la notebook a la red J2-Stylus (clave stylus2026).
+    3. Servir esta carpeta (no abrir con file://, igual que la SPA):
+         cd tools/medir_latencia_wifi
+         python -m http.server 5174
+       y abrir http://localhost:5174
+    4. Elegir la etiqueta (distancia o condicion), Medir, esperar a que termine.
+       Repetir para cada condicion; la tabla de abajo junta todas las corridas.
+    5. "Descargar CSV" guarda el resumen de todas las corridas y "Pings" el
+       detalle de la ultima.
+
+  Que mide:
+    - RTT de un ping de la PC al ESP32 y vuelta (performance.now()), con las
+      tramas de 50 Hz circulando. Latencia de un sentido ~ RTT / 2.
+    - Pings perdidos (sin respuesta en 2 s).
+    - Tramas: llegadas por segundo, separacion entre llegadas (jitter) y muestras
+      perdidas por huecos en el numero de secuencia.
+-->
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #ffffff; --tx: #1c1d21; --tx2: #5d6068; --borde: #dedcd5;
+  --acento: #1f3a8a; --ok: #2f7d4f; --mal: #b4442c; --barra: #8aa0d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1d1e21; --panel: #26282c; --tx: #ececec; --tx2: #a4a7ad; --borde: #3a3c41;
+    --acento: #9db4f5; --ok: #7fd09c; --mal: #f09a85; --barra: #5f77b8;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 15px/1.45 system-ui, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 20px 16px 40px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.sub { color: var(--tx2); margin: 0 0 18px; }
+.caja { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+.fila { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+label { display: flex; flex-direction: column; font-size: 13px; color: var(--tx2); gap: 4px; }
+input, select { font: inherit; padding: 6px 8px; border: 1px solid var(--borde); border-radius: 6px; background: var(--bg); color: var(--tx); min-width: 0; }
+input[type=number] { width: 90px; }
+button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--acento); background: var(--acento); color: var(--panel); cursor: pointer; }
+button.sec { background: transparent; color: var(--acento); }
+button:disabled { opacity: .5; cursor: default; }
+#estado { font-weight: 600; }
+.ok { color: var(--ok); } .mal { color: var(--mal); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.dato { border: 1px solid var(--borde); border-radius: 6px; padding: 8px 10px; }
+.dato b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.dato span { font-size: 12px; color: var(--tx2); }
+canvas { width: 100%; height: 180px; display: block; }
+.tabla { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14px; }
+th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--borde); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--tx2); font-weight: 500; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Latencia del enlace Wi-Fi</h1>
+  <p class="sub">Ping de ida y vuelta al ESP32 con las tramas de 50 Hz circulando (firmware/ensayo_latencia_wifi).</p>
+
+  <div class="caja">
+    <div class="fila">
+      <label>Host del ESP32 <input id="host" value="192.168.4.1" size="13"></label>
+      <label>Etiqueta
+        <select id="etiqueta">
+          <option>1 m</option><option>3 m</option><option>5 m</option>
+          <option>5 m con pared</option><option>lapiz en la mano</option><option>otro</option>
+        </select>
+      </label>
+      <label>Ping cada [ms] <input id="intervalo" type="number" value="100" min="20" step="10"></label>
+      <label>Duracion [s] <input id="duracion" type="number" value="60" min="5" step="5"></label>
+      <button id="medir">Medir</button>
+      <button id="parar" class="sec" disabled>Parar</button>
+    </div>
+    <p>Estado: <span id="estado">sin conectar</span></p>
+  </div>
+
+  <div class="caja">
+    <div class="grid">
+      <div class="dato"><b id="dRtt">-</b><span>RTT mediana [ms]</span></div>
+      <div class="dato"><b id="dP95">-</b><span>RTT p95 / p99 [ms]</span></div>
+      <div class="dato"><b id="dMax">-</b><span>RTT min / max [ms]</span></div>
+      <div class="dato"><b id="dPerd">-</b><span>pings perdidos</span></div>
+      <div class="dato"><b id="dTramas">-</b><span>tramas por segundo</span></div>
+      <div class="dato"><b id="dGap">-</b><span>separacion de tramas p95 / max [ms]</span></div>
+      <div class="dato"><b id="dMuestras">-</b><span>muestras perdidas (huecos)</span></div>
+      <div class="dato"><b id="dEsp">-</b><span>ESP32: hz / atrasadas / descartes</span></div>
+    </div>
+    <canvas id="histo" width="940" height="180" aria-label="Histograma del RTT"></canvas>
+  </div>
+
+  <div class="caja">
+    <div class="fila" style="justify-content: space-between">
+      <strong>Corridas</strong>
+      <span><button id="csv" class="sec">Descargar CSV</button> <button id="pings" class="sec">Pings de la ultima</button></span>
+    </div>
+    <div class="tabla">
+      <table>
+        <thead><tr><th>Etiqueta</th><th>Pings</th><th>Perdidos</th><th>Mediana</th><th>p95</th><th>p99</th><th>Max</th><th>Tramas/s</th><th>Sep. p95</th><th>Sep. max</th><th>Muestras perd.</th></tr></thead>
+        <tbody id="cuerpo"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws = null, timerPing = null, timerFin = null, timerVista = null, midiendo = false;
+let enviados = new Map(), rtts = [], pingsLog = [], idPing = 0;
+let llegadas = [], seqPrev = null, muestrasPerdidas = 0, ultimoSt = null, tInicio = 0, tFin = null;
+const corridas = [];
+
+function pct(arr, p) {
+  if (!arr.length) return NaN;
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(p / 100 * s.length))];
+}
+const f1 = (x) => Number.isFinite(x) ? x.toFixed(1) : '-';
+
+function estado(txt, clase) { const e = $('estado'); e.textContent = txt; e.className = clase || ''; }
+
+function resumen() {
+  const ahora = performance.now();
+  let perdidos = 0;
+  for (const t of enviados.values()) if (ahora - t > 2000) perdidos++;
+  const gaps = [];
+  for (let i = 1; i < llegadas.length; i++) gaps.push(llegadas[i] - llegadas[i - 1]);
+  const dur = ((tFin ?? ahora) - tInicio) / 1000;
+  return {
+    etiqueta: $('etiqueta').value, pings: rtts.length + perdidos, perdidos,
+    mediana: pct(rtts, 50), p95: pct(rtts, 95), p99: pct(rtts, 99),
+    min: rtts.length ? Math.min(...rtts) : NaN, max: rtts.length ? Math.max(...rtts) : NaN,
+    tramasSeg: dur > 0 ? llegadas.length / dur : NaN, gapP95: pct(gaps, 95),
+    gapMax: gaps.length ? Math.max(...gaps) : NaN, muestrasPerdidas, st: ultimoSt,
+  };
+}
+
+function mostrar() {
+  const r = resumen();
+  $('dRtt').textContent = f1(r.mediana);
+  $('dP95').textContent = f1(r.p95) + ' / ' + f1(r.p99);
+  $('dMax').textContent = f1(r.min) + ' / ' + f1(r.max);
+  $('dPerd').textContent = r.perdidos + ' de ' + r.pings;
+  $('dTramas').textContent = f1(r.tramasSeg);
+  $('dGap').textContent = f1(r.gapP95) + ' / ' + f1(r.gapMax);
+  $('dMuestras').textContent = r.muestrasPerdidas;
+  $('dEsp').textContent = r.st ? `${r.st.hz} / ${r.st.tarde} / ${r.st.drop}` : '-';
+  histograma();
+}
+
+function histograma() {
+  const c = $('histo'), g = c.getContext('2d');
+  const css = getComputedStyle(document.documentElement);
+  g.clearRect(0, 0, c.width, c.height);
+  if (!rtts.length) return;
+  const tope = Math.max(10, Math.ceil(pct(rtts, 99) / 5) * 5);
+  const nb = 40, ancho = tope / nb, cub = new Array(nb).fill(0);
+  for (const r of rtts) cub[Math.min(nb - 1, Math.floor(r / ancho))]++;
+  const mx = Math.max(...cub), bw = (c.width - 40) / nb;
+  g.fillStyle = css.getPropertyValue('--barra');
+  cub.forEach((v, i) => { const h = (c.height - 30) * v / mx; g.fillRect(30 + i * bw, c.height - 20 - h, bw - 2, h); });
+  g.fillStyle = css.getPropertyValue('--tx2');
+  g.font = '12px system-ui';
+  for (let k = 0; k <= 4; k++) g.fillText((tope * k / 4).toFixed(0) + ' ms', 30 + k * (c.width - 60) / 4, c.height - 4);
+}
+
+function medir() {
+  enviados = new Map(); rtts = []; pingsLog = []; idPing = 0;
+  llegadas = []; seqPrev = null; muestrasPerdidas = 0; ultimoSt = null; tFin = null;
+  const url = `ws://${$('host').value.trim()}:81/`;
+  estado('conectando a ' + url + '...');
+  ws = new WebSocket(url);
+  ws.onopen = () => {
+    midiendo = true; tInicio = performance.now();
+    $('medir').disabled = true; $('parar').disabled = false;
+    estado('midiendo...', 'ok');
+    const iv = Math.max(20, +$('intervalo').value || 100);
+    timerPing = setInterval(() => {
+      const id = ++idPing, t = performance.now();
+      enviados.set(id, t);
+      ws.send(`p,${id},${t.toFixed(3)}`);
+    }, iv);
+    timerFin = setTimeout(terminar, 1000 * Math.max(5, +$('duracion').value || 60));
+    timerVista = setInterval(mostrar, 500);
+  };
+  ws.onmessage = (ev) => {
+    const ahora = performance.now();
+    let d; try { d = JSON.parse(ev.data); } catch { return; }
+    if (d.pong !== undefined) {
+      const id = parseInt(String(d.pong).split(',')[0], 10);
+      const t = enviados.get(id);
+      if (t !== undefined) {
+        enviados.delete(id);
+        const rtt = ahora - t;
+        rtts.push(rtt);
+        pingsLog.push([id, (t - tInicio).toFixed(1), rtt.toFixed(2)]);
+      }
+      return;
+    }
+    if (!midiendo || !Array.isArray(d.s)) return;
+    ultimoSt = d;
+    llegadas.push(ahora);
+    for (const [seq] of d.s) {
+      if (seqPrev !== null && seq > seqPrev + 1) muestrasPerdidas += seq - seqPrev - 1;
+      seqPrev = seq;
+    }
+  };
+  ws.onclose = () => { if (midiendo) { estado('se corto la conexion', 'mal'); terminar(); } };
+  ws.onerror = () => estado('no se pudo conectar (¿la notebook esta en la red J2-Stylus?)', 'mal');
+}
+
+function terminar() {
+  if (!midiendo) return;
+  midiendo = false; tFin = performance.now();
+  clearInterval(timerPing); clearTimeout(timerFin); clearInterval(timerVista);
+  setTimeout(() => {          // 2 s para que lleguen los ultimos pongs
+    mostrar();
+    const r = resumen();
+    corridas.push(r);
+    agregarFila(r);
+    if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+    $('medir').disabled = false; $('parar').disabled = true;
+    estado('listo: ' + r.etiqueta, 'ok');
+  }, 2000);
+}
+
+function agregarFila(r) {
+  const tr = document.createElement('tr');
+  [r.etiqueta, r.pings, r.perdidos, f1(r.mediana), f1(r.p95), f1(r.p99), f1(r.max),
+   f1(r.tramasSeg), f1(r.gapP95), f1(r.gapMax), r.muestrasPerdidas].forEach((v) => {
+    const td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
+  });
+  $('cuerpo').appendChild(tr);
+}
+
+function descargar(nombre, texto) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([texto], {type: 'text/csv'}));
+  a.download = nombre; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function sello() { const d = new Date(), p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
+
+$('medir').onclick = medir;
+$('parar').onclick = terminar;
+$('csv').onclick = () => {
+  const cab = 'etiqueta,pings,perdidos,rtt_mediana_ms,rtt_p95_ms,rtt_p99_ms,rtt_min_ms,rtt_max_ms,tramas_por_s,sep_p95_ms,sep_max_ms,muestras_perdidas,esp_tarde,esp_drop';
+  const filas = corridas.map((r) => [r.etiqueta, r.pings, r.perdidos, f1(r.mediana), f1(r.p95), f1(r.p99), f1(r.min), f1(r.max),
+    f1(r.tramasSeg), f1(r.gapP95), f1(r.gapMax), r.muestrasPerdidas, r.st ? r.st.tarde : '', r.st ? r.st.drop : ''].join(','));
+  descargar(`latencia_wifi_${sello()}.csv`, [cab, ...filas].join('\n'));
+};
+$('pings').onclick = () => descargar(`pings_${sello()}.csv`, ['id,t_ms,rtt_ms', ...pingsLog.map((p) => p.join(','))].join('\n'));
+</script>
+</body>
+</html>

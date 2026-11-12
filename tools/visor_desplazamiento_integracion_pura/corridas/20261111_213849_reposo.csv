@@ -1,0 +1,7 @@
+#etiqueta=reposo
+# Referencia tomada
+#cfg gravedad_g=0.10060,0.99172,-0.02520
+#cfg bias_acc_g=0.00063,0.00780,-0.00092
+#cfg bias_gyro_dps=-1.3235,-0.5194,-1.6786
+#cfg beta=0.033
+#cols D,t_ms,Au,Av,An,Bu,Bv,Bn,incl_deg,sat,ciclo_us,ax,ay,az,gx,gy,gz
