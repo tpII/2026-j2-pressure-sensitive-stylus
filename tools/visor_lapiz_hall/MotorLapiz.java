@@ -77,6 +77,17 @@ public class MotorLapiz {
         return apoyado ? "apoyado (recalibrando bias)" : "pausa";
     }
 
+    public boolean estaListo() { return listo; }
+
+    // Rumbo (en el plano de la mesa) hacia donde apunta la punta, en radianes.
+    // Solo tiene sentido con el lapiz ACOSTADO: si esta casi vertical da NaN.
+    public float rumboPunta() {
+        float[] t = rotar(q, vectorPunta);
+        float h = (float) Math.hypot(t[0], t[1]);
+        if (h < 0.5f * norma(vectorPunta)) return Float.NaN;
+        return (float) Math.atan2(t[1], t[0]);
+    }
+
     public float durPasada() { return enPasada ? pas.size() * DT : 0; }
     public float[] biasDps() { float k = (float) (180 / Math.PI); return new float[] {bias[0] * k, bias[1] * k, bias[2] * k}; }
 

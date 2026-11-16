@@ -36,7 +36,7 @@
 import processing.serial.*;
 
 // ---------------- configuracion ----------------
-final String PUERTO = "";       // "" = ultimo puerto de la lista; o por ejemplo "COM5"
+final String PUERTO = "COM3";       // "" = ultimo puerto de la lista; o por ejemplo "COM5"
 final int    BAUD   = 921600;
 final float  INCL_MAX = 3.0;    // [grados] por encima B deja de ser valido
 final String[] ETIQUETAS = {"reposo", "trazo_5cm", "trazo_10cm", "trazo_20cm",

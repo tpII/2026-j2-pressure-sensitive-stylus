@@ -298,3 +298,33 @@
 * Definir con el docente el alcance del objetivo de desplazamiento (IMU, versión joystick o sensor óptico en la punta).
 * Medición de latencia Wi-Fi (Juan Pablo).
 * Pasar el Hall a un pin del ADC1 cuando se integre con `wifi_stream`.
+
+---
+
+## 12-11-2026
+
+**Actividades realizadas**
+
+* Se adaptó `tools/visor_lapiz_hall` para la demostración con el lápiz armado:
+  * Botones en pantalla: centrar, limpiar, reiniciar, usar o ignorar el Hall y tinta manual (mientras se mantiene apretado, por si el Hall no responde). Se quitaron las demás teclas.
+  * Funciona también con el firmware sin Hall (`ensayo_desplazamiento_integracion_pura`): la tinta sale solo con el botón o la barra espaciadora.
+  * Orientación de la vista: la dirección de la punta con el lápiz acostado se toma como "arriba" en la pantalla, así izquierda y derecha coinciden con las reales sin importar cómo esté rotado el sensor. Se verificó en simulación con el sensor rotado en cuatro direcciones: un trazo de 10 cm hacia la izquierda dio entre −8,6 y −10,3 cm en x.
+* Durante las pruebas el Hall dejó de responder como sensor de presión: solo distingue contacto o no.
+
+---
+
+## 16-11-2026
+
+**Actividades realizadas**
+
+* Se definió con el docente la versión final: el visor de dibujo con desplazamiento y Hall demuestra el límite de la investigación (el desplazamiento con IMU sola no se sostiene con el lápiz en la mano). La demostración final es el visor de orientación del primer informe de avance con dos vectores agregados: la gravedad según el acelerómetro y el giro según el giróscopo.
+* Se revisó el repositorio sugerido por el docente (github.com/Edubgr/MPU6050-MotionTracking): estima el desplazamiento con el DMP y el mismo método de pausas y corrección lineal de la velocidad, procesando después de grabar. Llega al mismo límite (los movimientos largos sin pausas no funcionan), así que no se adaptó.
+* Se agregó `firmware/lapiz_orientacion`, el firmware de la versión final: el mismo Madgwick embebido de `madgwick_filter` (β adaptativo 0,033 / 0,1) sin la estimación de desplazamiento. Manda en cada muestra el cuaternión, el acelerómetro, el giróscopo y el Hall.
+* Se agregó `tools/visor_orientacion_vectores`, el visor de la demostración final: modelo 3D con la orientación absoluta (la gravedad apunta siempre hacia abajo), vector gravedad, vector giro con el sentido de giro, inclinación del lápiz y dibujo por inclinación con el lápiz bajado por el Hall.
+* Se reorganizó el README separando la versión final (entrega) de los ensayos y herramientas de desarrollo.
+
+**Pendientes**
+
+* Terminar el ensamblaje del lápiz (Hall e imán en la punta) y revisar el Hall.
+* Probar `lapiz_orientacion` y `visor_orientacion_vectores` con el lápiz armado.
+* Informe final y exposición.
