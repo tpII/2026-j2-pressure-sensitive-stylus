@@ -317,8 +317,22 @@
 * Se agregó `firmware/lapiz_orientacion`, el firmware de la versión final: el mismo Madgwick embebido de `madgwick_filter` (β adaptativo 0,033 / 0,1) sin la estimación de desplazamiento. Manda en cada muestra el cuaternión, el acelerómetro, el giróscopo y el Hall.
 * Se agregó `tools/visor_orientacion_vectores`, el visor de la demostración final: modelo 3D con la orientación absoluta (la gravedad apunta siempre hacia abajo), vector gravedad, vector giro con el sentido de giro, inclinación del lápiz y dibujo por inclinación con el lápiz bajado por el Hall.
 
+---
+
+## 23-11-2026
+
+**Actividades realizadas**
+
+* Se corrigió `tools/visor_orientacion_vectores`:
+  * No recibía datos de `lapiz_orientacion`: esperaba 15 campos por línea y el firmware manda 14. Se corrigió la lectura y se agregó el reinicio del ESP32 al abrir el puerto, para que arranque la calibración desde cero.
+* Se agregó `firmware/lapiz_wifi`, el firmware final con Wi-Fi: el mismo sensado de `lapiz_orientacion` (Madgwick embebido, 100 Hz) en el núcleo 1, y en el núcleo 0 la red propia `J2-Stylus` con un WebSocket.
+  * La trama es una línea de texto con solo lo necesario para el trazo, 50 veces por segundo: `q0,q1,q2,q3,c` (cuaternión y contacto de la punta). Sin número de secuencia ni estadísticas.
+  * El Hall pasa al GPIO 34 (ADC1), porque el ADC2 no funciona con el Wi-Fi prendido.
+  * Se agregó la SPA final (`webapp/index.html`): dibuja el trazo por inclinación, con el lápiz detecatdo por el Hall o con la tecla ESPACIO. Se sigue sirviendo con `python -m http.server`.
+  * Se agregó a la SPA una pestaña "Orientación" con el modelo 3D de la placa girando con el cuaternión.
+* Se ordenó la carpeta `firmware`: los ensayos y las versiones anteriores pasaron a `firmware/ensayos`; en la raíz quedan solo `lapiz_orientacion` y `lapiz_wifi`.
+
 **Pendientes**
 
 * Terminar el ensamblaje del lápiz (Hall e imán en la punta) y revisar el Hall.
-* Probar `lapiz_orientacion` y `visor_orientacion_vectores` con el lápiz armado.
 * Informe final y exposición.
