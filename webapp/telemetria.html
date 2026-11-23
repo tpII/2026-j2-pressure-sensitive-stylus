@@ -1,0 +1,218 @@
+<!doctype html>
+<!--
+  Paso 2 de la SPA: ademas de graficar el dato recibido, muestra las
+  estadisticas del muestreo que publica el ESP32, para verificar que la cadencia
+  de 100 Hz se sostenga con el WiFi transmitiendo.
+
+  No abrir con file:// — servir con un servidor local, por ejemplo:
+      python -m http.server 5173
+  y despues abrir http://localhost:5173/telemetria.html
+  (index.html es la SPA final del trazo, para firmware/lapiz_wifi)
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J2 Stylus — Telemetria</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --trace: #2563eb;
+    --ok: #059669;
+    --bad: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115; --fg: #e8e8e8; --muted: #9ca3af;
+      --line: #262a33; --trace: #60a5fa; --ok: #34d399; --bad: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 650; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .estado {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-weight: 600; font-size: 13px; margin-bottom: 20px;
+  }
+  .punto { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); }
+  .estado.on .punto { background: var(--ok); }
+  canvas {
+    width: 100%; height: 200px; display: block;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  }
+  h2 {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .06em; margin: 22px 0 8px; font-weight: 600;
+  }
+  .metricas {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1px; background: var(--line); border: 1px solid var(--line);
+    border-radius: 8px; overflow: hidden;
+  }
+  .m { background: var(--bg); padding: 12px 14px; }
+  .m .k { font-size: 11px; color: var(--muted); }
+  .m .v { font-size: 20px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .m .v.alerta { color: var(--bad); }
+  footer { color: var(--muted); font-size: 12px; margin-top: 22px; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>J2 Stylus — Telemetria</h1>
+  <div class="sub">Paso 2: reparto entre nucleos. Dato sintetico, sin sensores.</div>
+
+  <div class="estado" id="estado"><span class="punto"></span><span id="estadoTxt">desconectado</span></div>
+
+  <canvas id="plot"></canvas>
+
+  <h2>Red</h2>
+  <div class="metricas">
+    <div class="m"><div class="k">Tramas/s</div><div class="v" id="mHz">—</div></div>
+    <div class="m"><div class="k">Jitter de llegada</div><div class="v" id="mJit">—</div></div>
+    <div class="m"><div class="k">Tramas perdidas</div><div class="v" id="mPerd">0</div></div>
+    <div class="m"><div class="k">Recibidas</div><div class="v" id="mTot">0</div></div>
+  </div>
+
+  <h2>Muestreo en el ESP32</h2>
+  <div class="metricas">
+    <div class="m"><div class="k">Muestras/s</div><div class="v" id="sHz">—</div></div>
+    <div class="m"><div class="k">Periodo</div><div class="v" id="sDt">—</div></div>
+    <div class="m"><div class="k">Atrasadas</div><div class="v" id="sTarde">—</div></div>
+    <div class="m"><div class="k">Descartes de cola</div><div class="v" id="sDrop">—</div></div>
+  </div>
+
+  <footer>
+    Fuente: <code id="url"></code> — se puede cambiar con <code>?host=192.168.4.1</code>
+  </footer>
+</div>
+
+<script>
+const HOST = new URLSearchParams(location.search).get('host') || '192.168.4.1';
+const URL_WS = `ws://${HOST}:81/`;
+document.getElementById('url').textContent = URL_WS;
+
+const MUESTRAS = 600;
+const serie = [];
+
+let total = 0, perdidas = 0, seqPrev = null;
+let llegadas = [];
+let st = null;                        // ultimas estadisticas del ESP32
+
+const $ = (id) => document.getElementById(id);
+
+// ---- WebSocket con reconexion -------------------------------------------
+let ws = null;
+
+function conectar() {
+  ws = new WebSocket(URL_WS);
+
+  ws.onopen = () => setEstado(true, 'conectado a ' + HOST);
+
+  ws.onmessage = (ev) => {
+    let d;
+    try { d = JSON.parse(ev.data); } catch { return; }
+
+    st = d;                           // hz, dtmin, dtmax, tarde, drop
+    total++;
+    llegadas.push(performance.now());
+
+    // d.s = [[seq, t_us, value], ...]
+    for (const [seq, , value] of d.s) {
+      if (seqPrev !== null && seq > seqPrev + 1) perdidas += seq - seqPrev - 1;
+      seqPrev = seq;
+      serie.push(value);
+    }
+    while (serie.length > MUESTRAS) serie.shift();
+  };
+
+  ws.onclose = () => {
+    setEstado(false, 'desconectado — reintentando');
+    setTimeout(conectar, 1000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+function setEstado(ok, txt) {
+  $('estado').classList.toggle('on', ok);
+  $('estadoTxt').textContent = txt;
+}
+
+function poner(id, texto, alerta) {
+  const el = $(id);
+  el.textContent = texto;
+  el.classList.toggle('alerta', !!alerta);
+}
+
+// ---- Metricas ------------------------------------------------------------
+setInterval(() => {
+  const ahora = performance.now();
+  llegadas = llegadas.filter(t => ahora - t < 1000);
+
+  poner('mHz', llegadas.length || '—');
+  poner('mTot', total);
+  poner('mPerd', perdidas, perdidas > 0);
+
+  if (llegadas.length > 2) {
+    const dt = [];
+    for (let i = 1; i < llegadas.length; i++) dt.push(llegadas[i] - llegadas[i - 1]);
+    poner('mJit', (Math.max(...dt) - Math.min(...dt)).toFixed(1) + ' ms');
+  }
+
+  if (st) {
+    // la cadencia de muestreo es el numero critico: tiene que quedarse en 100
+    poner('sHz', st.hz, Math.abs(st.hz - 100) > 1);
+    poner('sDt', `${st.dtmin}–${st.dtmax} µs`, st.dtmax > 11000);
+    poner('sTarde', st.tarde, st.tarde > 0);
+    poner('sDrop', st.drop, st.drop > 0);
+  }
+}, 500);
+
+// ---- Grafico -------------------------------------------------------------
+const cv = $('plot');
+const cx = cv.getContext('2d');
+
+function dibujar() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr || cv.height !== h * dpr) {
+    cv.width = w * dpr; cv.height = h * dpr;
+  }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.clearRect(0, 0, w, h);
+
+  const css = getComputedStyle(document.documentElement);
+
+  cx.strokeStyle = css.getPropertyValue('--line').trim();
+  cx.lineWidth = 1;
+  cx.beginPath(); cx.moveTo(0, h / 2); cx.lineTo(w, h / 2); cx.stroke();
+
+  if (serie.length > 1) {
+    cx.strokeStyle = css.getPropertyValue('--trace').trim();
+    cx.lineWidth = 2;
+    cx.beginPath();
+    for (let i = 0; i < serie.length; i++) {
+      const x = (i / (MUESTRAS - 1)) * w;
+      const y = h / 2 - serie[i] * (h / 2) * 0.9;
+      i ? cx.lineTo(x, y) : cx.moveTo(x, y);
+    }
+    cx.stroke();
+  }
+
+  requestAnimationFrame(dibujar);
+}
+
+conectar();
+requestAnimationFrame(dibujar);
+</script>
+</body>
+</html>

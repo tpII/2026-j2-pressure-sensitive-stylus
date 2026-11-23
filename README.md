@@ -8,7 +8,23 @@ Taller de Proyecto II 2026 — Grupo J2 — Pressure Sensitive Stylus
 | `firmware/lapiz_orientacion` | Firmware final: Madgwick embebido en el ESP32 (β adaptativo 0,033 / 0,1), sin desplazamiento. Manda la orientación, el acelerómetro, el giróscopo y el contacto del Hall. |
 | `tools/visor_orientacion_vectores` | Visor de la demostración final (Processing): modelo 3D con la orientación, el vector gravedad (acelerómetro) y el vector giro (giróscopo, con el sentido de giro); dibujo por inclinación con el lápiz bajado por el Hall. |
 
-Uso: cargar `firmware/lapiz_orientacion` en el ESP32 (placa ESP32 Dev Module, MPU6050 en SDA 21 / SCL 22, Hall SS49E en GPIO 4), dejar el lápiz quieto mientras calibra y abrir `tools/visor_orientacion_vectores` (puerto en la línea `PUERTO`).
+| `firmware/lapiz_wifi` | Firmware final con Wi-Fi: el mismo sensado de `lapiz_orientacion` en el núcleo 1 (100 Hz) y en el núcleo 0 la red propia `J2-Stylus` con un WebSocket que manda solo lo necesario para el trazo. |
+| `webapp` | SPA final (`index.html`): recibe la orientación y el contacto por Wi-Fi y dibuja el trazo por inclinación, igual que el visor de Processing. |
+
+### Uso por Wi-Fi (SPA)
+
+1. Cargar `firmware/lapiz_wifi` en el ESP32 (librería **WebSockets** de Markus Sattler). El Hall va al **GPIO 34**: el GPIO 4 es del ADC2, que no funciona con el Wi-Fi prendido. Sin el Hall anda igual: el lápiz se baja con ESPACIO.
+2. Dejar el lápiz quieto mientras calibra (unos 3 s).
+3. Conectar la compu a la red `J2-Stylus` (clave `stylus2026`). Mientras tanto la compu no tiene internet.
+4. En la carpeta `webapp`, correr `python -m http.server 5173` y abrir <http://localhost:5173>.
+5. R pone el cursor en el centro, C borra, ESPACIO baja o levanta el lápiz a mano, + / - cambian la sensibilidad, S guarda un PNG.
+6. La pestaña **Orientación** muestra el modelo 3D de la placa girando con el cuaternión, como en el visor de Processing (sin los vectores gravedad y giro, que no van en la trama), y los ángulos respecto de la referencia. El trazo se sigue dibujando mientras tanto.
+
+Trama: una línea de texto por mensaje WebSocket, 50 por segundo: `q0,q1,q2,q3,c` (cuaternión de orientación y contacto de la punta, 1 = toca). Por ejemplo `0.7759,0.0484,0.6278,-0.0392,1`. Es todo lo que usa el visor de Processing para dibujar: la SPA hace las mismas cuentas (vector de rotación respecto de la referencia, 12 px por grado).
+
+### Uso por cable (Processing)
+
+Cargar `firmware/lapiz_orientacion` en el ESP32 (placa ESP32 Dev Module, MPU6050 en SDA 21 / SCL 22, Hall SS49E en GPIO 4), dejar el lápiz quieto mientras calibra y abrir `tools/visor_orientacion_vectores` (puerto en la línea `PUERTO`).
 
 ## Desarrollo y ensayos
 
@@ -26,7 +42,7 @@ Uso: cargar `firmware/lapiz_orientacion` en el ESP32 (placa ESP32 Dev Module, MP
 | Carpeta | Contenido |
 |---|---|
 | `firmware/wifi_stream` | Transmisión Wi-Fi: SoftAP + WebSocket hacia la SPA. |
-| `webapp` | SPA de telemetría. |
+| `webapp/telemetria.html` | SPA de telemetría del ensayo (tramas/s, jitter, pérdidas, estadísticas del muestreo). Abrir <http://localhost:5173/telemetria.html>. |
 | `firmware/ensayo_latencia_wifi` | Ensayo: `wifi_stream` con un eco para medir la latencia de ida y vuelta (RTT) desde el navegador. |
 | `tools/medir_latencia_wifi` | Pagina web que mide la latencia del Wi-Fi (RTT, perdidas, separacion de tramas) con `ensayo_latencia_wifi`. |
 

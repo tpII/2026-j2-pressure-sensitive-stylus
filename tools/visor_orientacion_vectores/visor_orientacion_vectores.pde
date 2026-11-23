@@ -30,7 +30,7 @@
 
 import processing.serial.*;
 
-final String PUERTO = "COM3";   // "" = ultimo puerto de la lista
+final String PUERTO = "COM4";   // "" = ultimo puerto de la lista
 final int    BAUD   = 921600;
 final float  ESC_G    = 110;    // px por g (vector gravedad)
 final float  ESC_GIRO = 0.9;    // px por grado/s (vector giro)
@@ -54,7 +54,8 @@ float hz = 0;
 
 // ---------------- dibujo por inclinacion ----------------
 PGraphics vista3d, lienzo;
-final int MARGEN = 20, ARRIBA = 78, ANCHO3D = 640;
+final int MARGEN = 20, ARRIBA = 78;
+int ANCHO3D = 640;                   // se ajusta al ancho real de la ventana
 int lienzoX, lienzoY, lienzoW, lienzoH;
 boolean lapizManual = false;
 float ganancia = 12;                 // px por grado
@@ -69,7 +70,11 @@ float[] rvActual = {0, 0, 0};
 PFont fuente, fuenteChica, fuenteTitulo;
 
 void settings() {
-  size(1300, 760, P3D);
+  // En notebooks con escala de Windows 125-150 % Processing activa pixelDensity(2)
+  // y con P3D la ventana queda al doble de tamano y no entra en la pantalla.
+  // Densidad 1 y como maximo 1300x760, achicando si la pantalla es mas chica.
+  size(min(1300, displayWidth - 20), min(760, displayHeight - 110), P3D);
+  pixelDensity(1);
   smooth(8);
 }
 
@@ -78,6 +83,8 @@ void setup() {
   fuente = createFont("SansSerif", 14);
   fuenteChica = createFont("SansSerif", 12);
   fuenteTitulo = createFont("SansSerif.bold", 18);
+  surface.setLocation(0, 0);
+  ANCHO3D = round((width - 3 * MARGEN) * 0.52);
   lienzoX = MARGEN + ANCHO3D + MARGEN;
   lienzoY = ARRIBA;
   lienzoW = width - lienzoX - MARGEN;
@@ -99,6 +106,15 @@ void conectar() {
   if (nombre.equals("")) { simulacion = true; modo = "SIMULACION (sin ESP32): mover el mouse"; return; }
   try {
     esp = new Serial(this, nombre, BAUD);
+    // Al abrir el puerto, Processing deja DTR/RTS en un estado que en placas ESP32
+    // con auto-reset (CH340/CH9102/CP2102) puede dejar el chip en reset o en modo
+    // de programacion, y no llega nada. Se hace un reset limpio: EN abajo y arriba
+    // con IO0 en alto, como el Arduino IDE.
+    esp.setDTR(false);
+    esp.setRTS(true);
+    delay(120);
+    esp.setRTS(false);
+    esp.clear();
     esp.bufferUntil('\n');
     modo = "conectado a " + nombre + ", esperando al firmware (lapiz QUIETO)...";
   }
@@ -127,9 +143,10 @@ void serialEvent(Serial p) {
     }
     if (!s.startsWith("O,")) return;
     String[] f = split(s, ',');
-    if (f.length != 15) return;
-    float[] v = new float[14];
-    for (int i = 0; i < 14; i++) {
+    // O + 13 valores: q0..q3, ax..az, gx..gz, quieto, hall_mV, contacto
+    if (f.length < 14) return;
+    float[] v = new float[13];
+    for (int i = 0; i < 13; i++) {
       v[i] = float(f[i + 1]);
       if (Float.isNaN(v[i])) return;
     }
@@ -184,6 +201,8 @@ void dibujarVista3D(float[] qd, float[] a, float[] w) {
   g.background(34, 37, 43);
   g.lights();
   g.translate(g.width / 2.0, g.height / 2.0 + 10, 0);
+  float esc = min(1, min(g.width / 640.0, g.height / 632.0));   // escena pensada para 640x632
+  g.scale(esc);
   g.rotateX(-0.42);
   g.rotateY(0.6);
 
@@ -228,12 +247,20 @@ void dibujarVista3D(float[] qd, float[] a, float[] w) {
 
   // GIRO: eje (mano derecha) y largo = velocidad; arco = sentido de giro
   float wn = sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]);
-  if (wn > GIRO_MIN) {
-    float largo = min(wn * ESC_GIRO, 230);
+  // histeresis: aparece por encima de GIRO_MIN y se va por debajo de la mitad,
+  // asi no titila con giros lentos; ademas entra y sale con un fundido
+  if (wn > GIRO_MIN) giroVisible = true;
+  else if (wn < GIRO_MIN * 0.5) giroVisible = false;
+  alfaGiro = lerp(alfaGiro, giroVisible ? 255 : 0, 0.25);
+  if (alfaGiro > 4 && wn > 1e-3) {
+    // largo minimo de 110 px para que no quede escondido dentro de la placa
+    float largo = 110 + min(wn * ESC_GIRO, 120);
     float[] eje = {w[0] / wn, w[1] / wn, w[2] / wn};
-    float[] wv = aP(eje, largo);
-    flecha(g, wv, color(235, 80, 220), "giro", 5);
-    arcoGiro(g, eje, largo, color(235, 80, 220));
+    color c = color(235, 80, 220, alfaGiro);
+    flecha(g, aP(eje, largo - 14), c, "giro", 5, false);
+    cono(g, aP(eje, largo - 16), aP(eje, largo + 8), 8, c);
+    faseArco += radians(constrain(wn, 0, 720)) * 0.5 / max(frameRate, 1);   // el arco gira en el mismo sentido
+    arcoGiro(g, eje, largo, c);
   }
   g.popMatrix();
   g.endDraw();
@@ -252,6 +279,10 @@ void eje(PGraphics g, float[] p, color c, String nombre, float grosor) {
 }
 
 void flecha(PGraphics g, float[] p, color c, String nombre, float grosor) {
+  flecha(g, p, c, nombre, grosor, true);
+}
+
+void flecha(PGraphics g, float[] p, color c, String nombre, float grosor, boolean bola) {
   g.stroke(c);
   g.strokeWeight(grosor);
   g.line(0, 0, 0, p[0], p[1], p[2]);
@@ -259,44 +290,69 @@ void flecha(PGraphics g, float[] p, color c, String nombre, float grosor) {
   g.translate(p[0], p[1], p[2]);
   g.noStroke();
   g.fill(c);
-  g.sphere(7);
+  if (bola) g.sphere(7);
   g.textFont(fuente);
   g.text(nombre, 10, -10);
   g.popMatrix();
 }
 
 // Arco de 270 grados alrededor del eje de giro, cerca de la punta del vector, con
-// una punta de flecha: muestra hacia donde gira (se arma en ejes del sensor y se
-// pasa a Processing con la misma transformacion que el resto).
+// una punta de flecha conica: muestra hacia donde gira (se arma en ejes del sensor
+// y se pasa a Processing con la misma transformacion que el resto). El arco avanza
+// lentamente en el sentido del giro para que se lea sin ambiguedad.
+float[] uArco = {1, 0, 0};          // direccion de inicio del arco, se arrastra de un cuadro al otro
+float faseArco = 0;
+boolean giroVisible = false;
+float alfaGiro = 0;
+
 void arcoGiro(PGraphics g, float[] e, float largo, color c) {
-  float[] ref = abs(e[0]) < 0.9 ? new float[] {1, 0, 0} : new float[] {0, 1, 0};
-  float[] u = normal(cruz(e, ref));
+  // u perpendicular al eje, partiendo del u del cuadro anterior (transporte
+  // paralelo): asi el arco no salta cuando el eje cambia de direccion
+  float pe = uArco[0] * e[0] + uArco[1] * e[1] + uArco[2] * e[2];
+  float[] u = {uArco[0] - pe * e[0], uArco[1] - pe * e[1], uArco[2] - pe * e[2]};
+  if (u[0] * u[0] + u[1] * u[1] + u[2] * u[2] < 1e-4) {
+    u = cruz(e, abs(e[0]) < 0.9 ? new float[] {1, 0, 0} : new float[] {0, 1, 0});
+  }
+  u = normal(u);
+  uArco = u;
   float[] v = cruz(e, u);                       // (u, v, e) de mano derecha
-  float r = 28, d = largo * 0.7;
+  float r = 30, d = largo * 0.72;
+  final int N = 36;
+  float[][] pts = new float[N + 1][];
+  for (int k = 0; k <= N; k++) {
+    float t = faseArco + k / (float) N * 1.5 * PI;   // t creciente = sentido positivo (mano derecha)
+    float[] pt = {e[0] * d + r * (cos(t) * u[0] + sin(t) * v[0]),
+                  e[1] * d + r * (cos(t) * u[1] + sin(t) * v[1]),
+                  e[2] * d + r * (cos(t) * u[2] + sin(t) * v[2])};
+    pts[k] = aP(pt, 1);
+  }
   g.noFill();
   g.stroke(c);
   g.strokeWeight(3);
   g.beginShape();
-  float[] ult = null, prev = null;
-  for (int k = 0; k <= 30; k++) {
-    float t = k / 30.0 * 1.5 * PI;
-    float[] pt = {e[0] * d + r * (cos(t) * u[0] + sin(t) * v[0]),
-                  e[1] * d + r * (cos(t) * u[1] + sin(t) * v[1]),
-                  e[2] * d + r * (cos(t) * u[2] + sin(t) * v[2])};
-    float[] pp = aP(pt, 1);
-    g.vertex(pp[0], pp[1], pp[2]);
-    prev = ult;
-    ult = pp;
+  for (int k = 0; k <= N - 3; k++) g.vertex(pts[k][0], pts[k][1], pts[k][2]);
+  g.endShape();
+  cono(g, pts[N - 4], pts[N], 7, c);            // punta de flecha al final del arco
+}
+
+// Cono macizo de la base b a la punta p (coordenadas de Processing)
+void cono(PGraphics g, float[] b, float[] p, float r, color c) {
+  float[] a = {p[0] - b[0], p[1] - b[1], p[2] - b[2]};
+  if (a[0] * a[0] + a[1] * a[1] + a[2] * a[2] < 1e-6) return;
+  a = normal(a);
+  float[] n1 = normal(cruz(a, abs(a[0]) < 0.9 ? new float[] {1, 0, 0} : new float[] {0, 1, 0}));
+  float[] n2 = cruz(a, n1);
+  g.noStroke();
+  g.fill(c);
+  g.beginShape(TRIANGLE_FAN);
+  g.vertex(p[0], p[1], p[2]);
+  for (int k = 0; k <= 12; k++) {
+    float t = k / 12.0 * TWO_PI;
+    g.vertex(b[0] + r * (cos(t) * n1[0] + sin(t) * n2[0]),
+             b[1] + r * (cos(t) * n1[1] + sin(t) * n2[1]),
+             b[2] + r * (cos(t) * n1[2] + sin(t) * n2[2]));
   }
   g.endShape();
-  if (prev != null) {                           // punta de flecha al final del arco
-    g.pushMatrix();
-    g.translate(ult[0], ult[1], ult[2]);
-    g.noStroke();
-    g.fill(c);
-    g.sphere(5);
-    g.popMatrix();
-  }
 }
 
 float[] cruz(float[] a, float[] b) {

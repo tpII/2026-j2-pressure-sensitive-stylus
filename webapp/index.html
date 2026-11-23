@@ -1,217 +1,400 @@
 <!doctype html>
 <!--
-  Paso 2 de la SPA: ademas de graficar el dato recibido, muestra las
-  estadisticas del muestreo que publica el ESP32, para verificar que la cadencia
-  de 100 Hz se sostenga con el WiFi transmitiendo.
+  SPA del lapiz (version final): recibe por Wi-Fi la orientacion y el contacto que
+  manda firmware/lapiz_wifi y dibuja el trazo por inclinacion, con las mismas
+  cuentas que el visor de Processing (tools/visor_orientacion_vectores).
 
-  No abrir con file:// — servir con un servidor local, por ejemplo:
+  Trama (una por mensaje WebSocket, 50 por segundo):  q0,q1,q2,q3,c
+    q0..q3 = cuaternion de orientacion, c = 1 si la punta toca (Hall)
+
+  Uso: conectar la compu a la red "J2-Stylus" (clave stylus2026) y en esta carpeta
       python -m http.server 5173
-  y despues abrir http://localhost:5173
+  despues abrir http://localhost:5173   (no abrir con file://)
+  Otra direccion del ESP32: http://localhost:5173/?host=192.168.1.50
+
+  Teclas: R referencia (cursor al centro)  C borrar  ESPACIO bajar/levantar el lapiz
+          + / - sensibilidad               S guardar PNG
+  Pestana "Orientacion": modelo 3D de la placa girando con el cuaternion, como en
+  el visor de Processing (sin los vectores gravedad y giro, que no van en la trama).
+  El trazo se sigue dibujando mientras se mira esa pestana.
 -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>J2 Stylus — Telemetria</title>
+<title>J2 Stylus</title>
 <style>
   :root {
-    --bg: #ffffff;
-    --fg: #1a1a1a;
-    --muted: #6b7280;
-    --line: #e5e7eb;
-    --trace: #2563eb;
-    --ok: #059669;
-    --bad: #dc2626;
+    --bg: #f3f2ee; --fg: #1a1a1a; --muted: #6b7280; --line: #dedbd2;
+    --btn: #ffffff; --ok: #059669; --bad: #dc2626; --tinta: #192d6e;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #0f1115; --fg: #e8e8e8; --muted: #9ca3af;
-      --line: #262a33; --trace: #60a5fa; --ok: #34d399; --bad: #f87171;
+      --bg: #16181d; --fg: #e8e8e8; --muted: #9ca3af; --line: #2c313a;
+      --btn: #20242b; --ok: #34d399; --bad: #f87171;
     }
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg);
-    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  .wrap { max-width: 900px; margin: 0 auto; }
-  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 650; }
-  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
-  .estado {
-    display: inline-flex; align-items: center; gap: 7px;
-    font-weight: 600; font-size: 13px; margin-bottom: 20px;
-  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 12px; }
+  h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  .estado { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
   .punto { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); }
   .estado.on .punto { background: var(--ok); }
-  canvas {
-    width: 100%; height: 200px; display: block;
-    border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  .lapiz { margin-left: auto; font-weight: 600; font-size: 13px; color: var(--muted); }
+  .lapiz.abajo { color: var(--bad); }
+  .lienzo { position: relative; width: 100%; aspect-ratio: 1000 / 640; }
+  .lienzo canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    border-radius: 8px; border: 1px solid var(--line);
   }
-  h2 {
-    font-size: 11px; color: var(--muted); text-transform: uppercase;
-    letter-spacing: .06em; margin: 22px 0 8px; font-weight: 600;
+  #capaCursor { border-color: transparent; }
+  .barra { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  button {
+    font: inherit; font-size: 13px; color: var(--fg); background: var(--btn);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer;
   }
-  .metricas {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 1px; background: var(--line); border: 1px solid var(--line);
-    border-radius: 8px; overflow: hidden;
-  }
-  .m { background: var(--bg); padding: 12px 14px; }
-  .m .k { font-size: 11px; color: var(--muted); }
-  .m .v { font-size: 20px; font-variant-numeric: tabular-nums; margin-top: 2px; }
-  .m .v.alerta { color: var(--bad); }
-  footer { color: var(--muted); font-size: 12px; margin-top: 22px; }
-  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; }
+  button:hover { border-color: var(--muted); }
+  kbd { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); margin-left: 4px; }
+  .sens { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .pestanas { display: flex; gap: 4px; }
+  .pestanas button { border-radius: 6px; }
+  .pestanas button.activa { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .oculto { display: none !important; }
+  .orient { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  #vista3d { width: 100%; max-width: 640px; aspect-ratio: 640 / 632; border-radius: 8px; display: block; }
+  .datos { display: grid; grid-template-columns: auto auto; gap: 4px 16px; font-size: 13px; }
+  .datos .k { color: var(--muted); }
+  .datos .v { font-variant-numeric: tabular-nums; text-align: right; }
+  .datos h2 { grid-column: 1 / -1; font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .06em; margin: 10px 0 2px; font-weight: 600; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>J2 Stylus — Telemetria</h1>
-  <div class="sub">Paso 2: reparto entre nucleos. Dato sintetico, sin sensores.</div>
+  <header>
+    <h1>J2 Stylus</h1>
+    <div class="pestanas">
+      <button id="tabTrazo" class="activa">Trazo</button>
+      <button id="tabOrient">Orientacion</button>
+    </div>
+    <div class="estado" id="estado"><span class="punto"></span><span id="estadoTxt">desconectado</span></div>
+    <div class="lapiz" id="lapiz">lapiz arriba</div>
+  </header>
 
-  <div class="estado" id="estado"><span class="punto"></span><span id="estadoTxt">desconectado</span></div>
-
-  <canvas id="plot"></canvas>
-
-  <h2>Red</h2>
-  <div class="metricas">
-    <div class="m"><div class="k">Tramas/s</div><div class="v" id="mHz">—</div></div>
-    <div class="m"><div class="k">Jitter de llegada</div><div class="v" id="mJit">—</div></div>
-    <div class="m"><div class="k">Tramas perdidas</div><div class="v" id="mPerd">0</div></div>
-    <div class="m"><div class="k">Recibidas</div><div class="v" id="mTot">0</div></div>
+  <div class="orient oculto" id="panelOrient">
+    <canvas id="vista3d"></canvas>
+    <div class="datos">
+      <h2>Respecto de la referencia</h2>
+      <span class="k">inclinacion X</span><span class="v" id="dX">—</span>
+      <span class="k">inclinacion Y</span><span class="v" id="dY">—</span>
+      <span class="k">giro Z</span><span class="v" id="dZ">—</span>
+      <h2>Cuaternion</h2>
+      <span class="k">q0 q1</span><span class="v" id="dQa">—</span>
+      <span class="k">q2 q3</span><span class="v" id="dQb">—</span>
+    </div>
   </div>
 
-  <h2>Muestreo en el ESP32</h2>
-  <div class="metricas">
-    <div class="m"><div class="k">Muestras/s</div><div class="v" id="sHz">—</div></div>
-    <div class="m"><div class="k">Periodo</div><div class="v" id="sDt">—</div></div>
-    <div class="m"><div class="k">Atrasadas</div><div class="v" id="sTarde">—</div></div>
-    <div class="m"><div class="k">Descartes de cola</div><div class="v" id="sDrop">—</div></div>
+  <div class="lienzo" id="panelTrazo">
+    <canvas id="capaTrazo"></canvas>
+    <canvas id="capaCursor"></canvas>
   </div>
 
-  <footer>
-    Fuente: <code id="url"></code> — se puede cambiar con <code>?host=192.168.4.1</code>
-  </footer>
+  <div class="barra">
+    <button id="bRef">Referencia<kbd>R</kbd></button>
+    <button id="bBorrar">Borrar<kbd>C</kbd></button>
+    <button id="bLapiz">Bajar lapiz<kbd>ESPACIO</kbd></button>
+    <button id="bMenos">−</button>
+    <span class="sens" id="sens"></span>
+    <button id="bMas">+</button>
+    <button id="bPng">Guardar PNG<kbd>S</kbd></button>
+  </div>
+
+  <footer>Inclinacion: eje X del sensor → horizontal, eje Y → vertical. Fuente: <span id="url"></span></footer>
 </div>
 
 <script>
+// ---- conexion -------------------------------------------------------------
 const HOST = new URLSearchParams(location.search).get('host') || '192.168.4.1';
 const URL_WS = `ws://${HOST}:81/`;
 document.getElementById('url').textContent = URL_WS;
 
-const MUESTRAS = 600;
-const serie = [];
-
-let total = 0, perdidas = 0, seqPrev = null;
-let llegadas = [];
-let st = null;                        // ultimas estadisticas del ESP32
-
-const $ = (id) => document.getElementById(id);
-
-// ---- WebSocket con reconexion -------------------------------------------
-let ws = null;
+let q = [1, 0, 0, 0];          // ultimo cuaternion recibido
+let contacto = false;          // ultimo contacto recibido (Hall)
+let qRef = null;               // referencia: se toma con el primer dato y con R
 
 function conectar() {
-  ws = new WebSocket(URL_WS);
-
+  const ws = new WebSocket(URL_WS);
   ws.onopen = () => setEstado(true, 'conectado a ' + HOST);
-
   ws.onmessage = (ev) => {
-    let d;
-    try { d = JSON.parse(ev.data); } catch { return; }
-
-    st = d;                           // hz, dtmin, dtmax, tarde, drop
-    total++;
-    llegadas.push(performance.now());
-
-    // d.s = [[seq, t_us, value], ...]
-    for (const [seq, , value] of d.s) {
-      if (seqPrev !== null && seq > seqPrev + 1) perdidas += seq - seqPrev - 1;
-      seqPrev = seq;
-      serie.push(value);
-    }
-    while (serie.length > MUESTRAS) serie.shift();
+    const f = String(ev.data).split(',');
+    if (f.length !== 5) return;
+    const v = f.map(Number);
+    if (v.some(Number.isNaN)) return;
+    q = v.slice(0, 4);
+    contacto = v[4] === 1;
+    if (!qRef) referencia();
   };
-
-  ws.onclose = () => {
-    setEstado(false, 'desconectado — reintentando');
-    setTimeout(conectar, 1000);
-  };
-
+  ws.onclose = () => { setEstado(false, 'desconectado, reintentando...'); setTimeout(conectar, 1000); };
   ws.onerror = () => ws.close();
 }
 
 function setEstado(ok, txt) {
-  $('estado').classList.toggle('on', ok);
-  $('estadoTxt').textContent = txt;
+  document.getElementById('estado').classList.toggle('on', ok);
+  document.getElementById('estadoTxt').textContent = txt;
 }
 
-function poner(id, texto, alerta) {
-  const el = $(id);
-  el.textContent = texto;
-  el.classList.toggle('alerta', !!alerta);
+// ---- cuentas (iguales al visor de Processing) -----------------------------
+function mult(a, b) {
+  return [
+    a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3],
+    a[0]*b[1] + a[1]*b[0] + a[2]*b[3] - a[3]*b[2],
+    a[0]*b[2] - a[1]*b[3] + a[2]*b[0] + a[3]*b[1],
+    a[0]*b[3] + a[1]*b[2] - a[2]*b[1] + a[3]*b[0],
+  ];
+}
+const conj = (a) => [a[0], -a[1], -a[2], -a[3]];
+
+// vector de rotacion en grados (eje * angulo) de un cuaternion
+function vectorRotacion(r) {
+  let [w, x, y, z] = r;
+  if (w < 0) { w = -w; x = -x; y = -y; z = -z; }
+  const s = Math.hypot(x, y, z);
+  const grados = 180 / Math.PI;
+  if (s < 1e-6) return [2 * x * grados, 2 * y * grados, 2 * z * grados];
+  const k = 2 * Math.atan2(s, w) * grados / s;
+  return [x * k, y * k, z * k];
 }
 
-// ---- Metricas ------------------------------------------------------------
-setInterval(() => {
-  const ahora = performance.now();
-  llegadas = llegadas.filter(t => ahora - t < 1000);
+// ---- lienzo ---------------------------------------------------------------
+const W = 1000, H = 640;                 // tamano logico del lienzo
+const ESC = Math.max(2, window.devicePixelRatio || 1);
+const cvT = document.getElementById('capaTrazo'), ctxT = cvT.getContext('2d');
+const cvC = document.getElementById('capaCursor'), ctxC = cvC.getContext('2d');
+for (const [cv, c] of [[cvT, ctxT], [cvC, ctxC]]) {
+  cv.width = W * ESC; cv.height = H * ESC;
+  c.setTransform(ESC, 0, 0, ESC, 0, 0);
+}
 
-  poner('mHz', llegadas.length || '—');
-  poner('mTot', total);
-  poner('mPerd', perdidas, perdidas > 0);
+let ganancia = 12;                       // px por grado, como en Processing
+let lapizManual = false;
+let cx = W / 2, cy = H / 2, px = cx, py = cy, primerPunto = true;
 
-  if (llegadas.length > 2) {
-    const dt = [];
-    for (let i = 1; i < llegadas.length; i++) dt.push(llegadas[i] - llegadas[i - 1]);
-    poner('mJit', (Math.max(...dt) - Math.min(...dt)).toFixed(1) + ' ms');
+function borrar() {
+  ctxT.fillStyle = 'rgb(250,248,242)';
+  ctxT.fillRect(0, 0, W, H);
+  ctxT.strokeStyle = 'rgb(225,222,212)';
+  ctxT.lineWidth = 1;
+  ctxT.beginPath();
+  for (let x = 0; x < W; x += 40) { ctxT.moveTo(x + 0.5, 0); ctxT.lineTo(x + 0.5, H); }
+  for (let y = 0; y < H; y += 40) { ctxT.moveTo(0, y + 0.5); ctxT.lineTo(W, y + 0.5); }
+  ctxT.stroke();
+}
+
+let qRumbo = [1, 0, 0, 0];     // quita el rumbo (yaw) para que el modelo 3D mire de frente
+
+function referencia() {
+  qRef = q.slice();
+  const yaw = Math.atan2(2 * (q[0]*q[3] + q[1]*q[2]), 1 - 2 * (q[2]*q[2] + q[3]*q[3]));
+  qRumbo = [Math.cos(-yaw / 2), 0, 0, Math.sin(-yaw / 2)];
+  cx = px = W / 2; cy = py = H / 2;
+  primerPunto = true;
+}
+
+const lapizAbajo = () => lapizManual || contacto;
+const limitar = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function cuadro() {
+  if (qRef) {
+    const rv = vectorRotacion(mult(conj(qRef), q));
+    const tx = limitar(W / 2 + rv[0] * ganancia, 0, W);     // X del sensor -> horizontal
+    const ty = limitar(H / 2 - rv[1] * ganancia, 0, H);     // Y del sensor -> vertical (invertido)
+    cx += (tx - cx) * 0.35;
+    cy += (ty - cy) * 0.35;
+    if (lapizAbajo()) {
+      if (primerPunto) { px = cx; py = cy; primerPunto = false; }
+      ctxT.strokeStyle = 'rgb(25,45,110)';
+      ctxT.lineWidth = 4;
+      ctxT.lineCap = 'round';
+      ctxT.beginPath(); ctxT.moveTo(px, py); ctxT.lineTo(cx, cy); ctxT.stroke();
+    } else primerPunto = true;
+    px = cx; py = cy;
   }
 
-  if (st) {
-    // la cadencia de muestreo es el numero critico: tiene que quedarse en 100
-    poner('sHz', st.hz, Math.abs(st.hz - 100) > 1);
-    poner('sDt', `${st.dtmin}–${st.dtmax} µs`, st.dtmax > 11000);
-    poner('sTarde', st.tarde, st.tarde > 0);
-    poner('sDrop', st.drop, st.drop > 0);
+  ctxC.clearRect(0, 0, W, H);
+  ctxC.lineWidth = 2;
+  if (lapizAbajo()) {
+    ctxC.fillStyle = 'rgb(25,45,110)';
+    ctxC.beginPath(); ctxC.arc(cx, cy, 5, 0, 2 * Math.PI); ctxC.fill();
+  } else {
+    ctxC.strokeStyle = 'rgb(120,120,120)';
+    ctxC.beginPath(); ctxC.arc(cx, cy, 8, 0, 2 * Math.PI);
+    ctxC.moveTo(cx - 12, cy); ctxC.lineTo(cx - 5, cy); ctxC.moveTo(cx + 5, cy); ctxC.lineTo(cx + 12, cy);
+    ctxC.moveTo(cx, cy - 12); ctxC.lineTo(cx, cy - 5); ctxC.moveTo(cx, cy + 5); ctxC.lineTo(cx, cy + 12);
+    ctxC.stroke();
   }
-}, 500);
 
-// ---- Grafico -------------------------------------------------------------
-const cv = $('plot');
-const cx = cv.getContext('2d');
+  const el = document.getElementById('lapiz');
+  el.textContent = lapizAbajo() ? 'LAPIZ ABAJO' : 'lapiz arriba';
+  el.classList.toggle('abajo', lapizAbajo());
+  document.getElementById('bLapiz').firstChild.textContent = lapizManual ? 'Levantar lapiz' : 'Bajar lapiz';
+  if (pestana === 'orient') dibujarOrientacion();
+  requestAnimationFrame(cuadro);
+}
 
-function dibujar() {
-  const dpr = window.devicePixelRatio || 1;
-  const w = cv.clientWidth, h = cv.clientHeight;
-  if (cv.width !== w * dpr || cv.height !== h * dpr) {
-    cv.width = w * dpr; cv.height = h * dpr;
+// ---- pestana Orientacion: modelo 3D de la placa (como el visor de Processing) ----
+// Sin librerias (en la red J2-Stylus no hay internet): se proyectan a mano las
+// caras de unas cajas. La escena es la misma del visor: 640x632, camara
+// rotateX(-0.42) rotateY(0.6), mesa 150 px por debajo.
+const V3W = 640, V3H = 632;
+const cv3 = document.getElementById('vista3d'), ctx3 = cv3.getContext('2d');
+cv3.width = V3W * ESC; cv3.height = V3H * ESC;
+ctx3.setTransform(ESC, 0, 0, ESC, 0, 0);
+const DCAM = (V3H / 2) / Math.tan(Math.PI / 6);   // camara por defecto de Processing
+
+// rota v (ejes del sensor) con el cuaternion r: r v r*
+function rotar(r, v) {
+  const p = mult(mult(r, [0, v[0], v[1], v[2]]), conj(r));
+  return [p[1], p[2], p[3]];
+}
+// ejes del sensor -> ejes de Processing (Y hacia abajo): X -> X, Y -> -Z, Z -> -Y
+const aP = (v) => [v[0], -v[2], -v[1]];
+// camara (rotateX(-0.42) * rotateY(0.6)) y perspectiva; devuelve [x, y, profundidad]
+const CX = Math.cos(-0.42), SX = Math.sin(-0.42), CY = Math.cos(0.6), SY = Math.sin(0.6);
+function camara(p) {
+  const x1 = CY * p[0] + SY * p[2], z1 = -SY * p[0] + CY * p[2];
+  return [x1, CX * p[1] - SX * z1, SX * p[1] + CX * z1];
+}
+function proyectar(p) {
+  const [x, y, z] = camara(p), k = DCAM / (DCAM - z);
+  return [V3W / 2 + x * k, V3H / 2 + 10 + y * k, z];
+}
+// punto del cuerpo (ejes del sensor) -> pantalla
+const enPantalla = (qd, v) => proyectar(aP(rotar(qd, v)));
+
+// cajas en ejes del sensor: centro, medio largo en x, y, z, color
+const PLACA = [[[0, 0, 0], [85, 55, 4], [20, 90, 160]],      // GY-521
+               [[0, 0, 8], [20, 20, 4], [25, 25, 25]]];       // chip
+for (let i = 0; i < 8; i++) PLACA.push([[-70 + i * 20, -48, 6], [3, 3, 3], [210, 180, 60]]);  // pines
+const CARAS = [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]];
+const LUZ = (() => { const l = [-0.3, -0.6, 0.75], n = Math.hypot(...l); return l.map(c => c / n); })();
+
+function dibujarOrientacion() {
+  const qd = mult(qRumbo, q);
+  const c = ctx3;
+  c.fillStyle = 'rgb(34,37,43)';
+  c.fillRect(0, 0, V3W, V3H);
+
+  // mesa (horizontal del mundo), igual que en Processing
+  c.strokeStyle = 'rgb(70,75,85)'; c.lineWidth = 1; c.beginPath();
+  for (let i = -220; i <= 220; i += 40) {
+    let a = proyectar([i, 150, -220]), b = proyectar([i, 150, 220]);
+    c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]);
+    a = proyectar([-220, 150, i]); b = proyectar([220, 150, i]);
+    c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]);
   }
-  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  cx.clearRect(0, 0, w, h);
+  c.stroke();
 
-  const css = getComputedStyle(document.documentElement);
-
-  cx.strokeStyle = css.getPropertyValue('--line').trim();
-  cx.lineWidth = 1;
-  cx.beginPath(); cx.moveTo(0, h / 2); cx.lineTo(w, h / 2); cx.stroke();
-
-  if (serie.length > 1) {
-    cx.strokeStyle = css.getPropertyValue('--trace').trim();
-    cx.lineWidth = 2;
-    cx.beginPath();
-    for (let i = 0; i < serie.length; i++) {
-      const x = (i / (MUESTRAS - 1)) * w;
-      const y = h / 2 - serie[i] * (h / 2) * 0.9;
-      i ? cx.lineTo(x, y) : cx.moveTo(x, y);
+  // caras de las cajas: se descartan las de atras y se pintan de lejos a cerca
+  const caras = [];
+  for (const [cen, m, col] of PLACA) {
+    const vs = [];
+    for (let k = 0; k < 8; k++) {
+      const v = [cen[0] + (k & 4 ? m[0] : -m[0]), cen[1] + (k & 2 ? m[1] : -m[1]), cen[2] + (k & 1 ? m[2] : -m[2])];
+      vs.push(camara(aP(rotar(qd, v))));
     }
-    cx.stroke();
+    const cc = camara(aP(rotar(qd, cen)));
+    for (const f of CARAS) {
+      const fc = [0, 1, 2].map(j => f.reduce((s, i) => s + vs[i][j], 0) / 4);
+      // normal hacia afuera (centro de la cara - centro de la caja), en ejes de la camara
+      const n = [fc[0] - cc[0], fc[1] - cc[1], fc[2] - cc[2]];
+      const aOjo = [-fc[0], -fc[1], DCAM - fc[2]];
+      if (n[0] * aOjo[0] + n[1] * aOjo[1] + n[2] * aOjo[2] <= 0) continue;   // de espaldas
+      const nn = Math.hypot(...n) || 1;
+      const luz = 0.45 + 0.55 * Math.max(0, (n[0] * LUZ[0] + n[1] * LUZ[1] + n[2] * LUZ[2]) / nn);
+      const pts = f.map(i => { const k = DCAM / (DCAM - vs[i][2]); return [V3W / 2 + vs[i][0] * k, V3H / 2 + 10 + vs[i][1] * k]; });
+      caras.push({ pts, z: fc[2], col: col.map(x => Math.round(x * luz)) });
+    }
+  }
+  caras.sort((p, r) => p.z - r.z);
+  for (const f of caras) {
+    c.fillStyle = `rgb(${f.col})`;
+    c.beginPath(); f.pts.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]));
+    c.closePath(); c.fill();
   }
 
-  requestAnimationFrame(dibujar);
+  // ejes del sensor
+  const o = enPantalla(qd, [0, 0, 0]);
+  c.font = '600 14px ui-sans-serif, system-ui, sans-serif';
+  for (const [v, col, txt] of [[[110, 0, 0], 'rgb(230,70,70)', 'X'],
+                               [[0, 110, 0], 'rgb(80,200,100)', 'Y'],
+                               [[0, 0, 110], 'rgb(80,150,255)', 'Z']]) {
+    const p = enPantalla(qd, v), t = enPantalla(qd, v.map(x => x * 1.15));
+    c.strokeStyle = c.fillStyle = col; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(o[0], o[1]); c.lineTo(p[0], p[1]); c.stroke();
+    c.fillText(txt, t[0] - 4, t[1] + 5);
+  }
+
+  // numeros
+  const rv = qRef ? vectorRotacion(mult(conj(qRef), q)) : [0, 0, 0];
+  const g = (x) => (x >= 0 ? '+' : '') + x.toFixed(1) + '°';
+  document.getElementById('dX').textContent = g(rv[0]);
+  document.getElementById('dY').textContent = g(rv[1]);
+  document.getElementById('dZ').textContent = g(rv[2]);
+  document.getElementById('dQa').textContent = q[0].toFixed(3) + '  ' + q[1].toFixed(3);
+  document.getElementById('dQb').textContent = q[2].toFixed(3) + '  ' + q[3].toFixed(3);
 }
 
+let pestana = 'trazo';
+function elegirPestana(p) {
+  pestana = p;
+  document.getElementById('panelTrazo').classList.toggle('oculto', p !== 'trazo');
+  document.getElementById('panelOrient').classList.toggle('oculto', p !== 'orient');
+  document.getElementById('tabTrazo').classList.toggle('activa', p === 'trazo');
+  document.getElementById('tabOrient').classList.toggle('activa', p === 'orient');
+}
+document.getElementById('tabTrazo').onclick = () => elegirPestana('trazo');
+document.getElementById('tabOrient').onclick = () => elegirPestana('orient');
+
+// ---- controles --------------------------------------------------------------
+function mostrarSens() { document.getElementById('sens').textContent = `sensibilidad ${ganancia} px/grado`; }
+function cambiarSens(d) { ganancia = limitar(ganancia + d, 2, 60); mostrarSens(); }
+function alternarLapiz() { lapizManual = !lapizManual; primerPunto = true; }
+function guardarPng() {
+  const a = document.createElement('a');
+  a.download = 'trazo_' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '') + '.png';
+  a.href = cvT.toDataURL('image/png');
+  a.click();
+}
+
+document.getElementById('bRef').onclick = referencia;
+document.getElementById('bBorrar').onclick = borrar;
+document.getElementById('bLapiz').onclick = alternarLapiz;
+document.getElementById('bMas').onclick = () => cambiarSens(2);
+document.getElementById('bMenos').onclick = () => cambiarSens(-2);
+document.getElementById('bPng').onclick = guardarPng;
+document.querySelectorAll('button').forEach(b => b.addEventListener('keydown', e => { if (e.key === ' ') e.preventDefault(); }));
+
+addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (e.key === ' ') { e.preventDefault(); alternarLapiz(); }
+  else if (k === 'r') referencia();
+  else if (k === 'c') borrar();
+  else if (k === 's') guardarPng();
+  else if (e.key === '+' || e.key === '=') cambiarSens(2);
+  else if (e.key === '-' || e.key === '_') cambiarSens(-2);
+});
+
+borrar();
+mostrarSens();
 conectar();
-requestAnimationFrame(dibujar);
+requestAnimationFrame(cuadro);
 </script>
 </body>
 </html>

@@ -31,17 +31,18 @@ la Heltec V3 usa un CP2102, no el USB nativo del S3.
 
 ## Levantar la interfaz
 
-La SPA esta en `webapp/` en la raiz del repositorio. No abrirla con `file://`:
+La SPA de este ensayo es `webapp/telemetria.html` (el `index.html` de esa carpeta
+es ahora la SPA final del trazo, para `firmware/lapiz_wifi`). No abrirla con `file://`:
 el origen es `null` y el WebSocket se comporta distinto segun el navegador.
 
     cd webapp
     python -m http.server 5173
 
 Despues, con la notebook conectada a la red `J2-Stylus` con la contraseña 'stylus2026', abrir
-<http://localhost:5173>.
+<http://localhost:5173/telemetria.html>.
 
 Si la placa esta en modo estacion en vez de AP, se le puede pasar otra
-direccion: `http://localhost:5173/?host=192.168.1.50`
+direccion: `http://localhost:5173/telemetria.html?host=192.168.1.50`
 
 ## Que hay que verificar
 

@@ -9,7 +9,7 @@ Archivos involucrados:
 |---|---|
 | `firmware/wifi_stream/wifi_stream.ino` | Firmware del ESP32: red, muestreo y transmisión |
 | `firmware/wifi_stream/README.md` | Cómo cargarlo y el procedimiento de verificación |
-| `webapp/index.html` | SPA: cliente WebSocket, gráfico y telemetría |
+| `webapp/telemetria.html` | SPA: cliente WebSocket, gráfico y telemetría (antes `webapp/index.html`) |
 
 ## 1. Alcance
 
@@ -55,7 +55,7 @@ local y se abre en el navegador:
     cd webapp
     python -m http.server 5173
 
-y después `http://localhost:5173`. El navegador carga la página desde
+y después `http://localhost:5173/telemetria.html`. El navegador carga la página desde
 `localhost` y los datos desde el ESP32; son dos orígenes distintos y eso está
 bien, porque WebSocket no aplica la política de mismo origen.
 
